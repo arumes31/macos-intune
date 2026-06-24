@@ -100,16 +100,56 @@ echo "[CLEAR] No active Parallels processes detected. Proceeding safely to remed
 echo "[PROCEEDING] Starting download pipeline for new Parallels payload..."
 mkdir -p "$TEMP_DIR"
 
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 900 "$DOWNLOAD_URL" -o "$DMG_PATH")
+# The full app DMG is ~205 MB; 900s was too tight on throttled/VPN'd managed Macs and
+# truncated the transfer. Give it 30 min so slow links still complete the pull.
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
-if [ "$HTTP_STATUS" -ne 200 ]; then
+# Default to "000" so an empty / non-numeric value can never make the guard below
+# error out and get silently treated as success. That bug let a failed download fall
+# through to hdiutil with no file on disk, producing the misleading
+# "hdiutil: attach failed - No such file or directory". Use string compare too.
+HTTP_STATUS=${HTTP_STATUS:-000}
+if [ "$HTTP_STATUS" != "200" ]; then
     echo "[FATAL] Download failed with unexpected HTTP Network Token: $HTTP_STATUS"
     rm -rf "$TEMP_DIR"
     exit 1
 fi
 
-echo "[INFO] Mounting disk image volume..."
-MOUNT_POINT=$(hdiutil attach -nobrowse -readonly "$DMG_PATH" | grep -E '/Volumes/.*' | awk -F'\t' '{print $NF}' | head -n 1)
+# Confirm the payload actually landed and is plausibly the full installer. A missing
+# file, the ~2 MB web-installer stub, or a truncated transfer would otherwise reach
+# hdiutil and fail with a cryptic ENOENT / "image not recognized".
+if [ ! -s "$DMG_PATH" ]; then
+    echo "[FATAL] Download reported HTTP 200 but no file was written to $DMG_PATH. Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+DMG_BYTES=$(stat -f%z "$DMG_PATH" 2>/dev/null || echo 0)
+if [ "$DMG_BYTES" -lt 52428800 ]; then   # < 50 MB: stub or truncated, not the ~205 MB full app
+    echo "[FATAL] Downloaded DMG is only $DMG_BYTES bytes (expected ~205 MB). Likely truncated. Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Validate the disk image structure before attaching, so a corrupt/partial file is
+# reported plainly instead of as the misleading hdiutil ENOENT.
+if ! hdiutil imageinfo "$DMG_PATH" >/dev/null 2>&1; then
+    echo "[FATAL] Downloaded file is not a valid disk image (corrupt or partial transfer). Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+echo "[INFO] Mounting disk image volume ($DMG_BYTES bytes)..."
+# Capture hdiutil's own output (incl. stderr) so any future failure is self-explanatory;
+# `yes |` harmlessly accepts a SLA prompt if the image ever carries one.
+ATTACH_OUT=$(yes 2>/dev/null | hdiutil attach -nobrowse -noverify -noautoopen -readonly "$DMG_PATH" 2>&1)
+ATTACH_RC=$?
+if [ "$ATTACH_RC" -ne 0 ]; then
+    echo "[FATAL] hdiutil attach failed (rc=$ATTACH_RC): $ATTACH_OUT"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+MOUNT_POINT=$(echo "$ATTACH_OUT" | grep -E '/Volumes/.*' | awk -F'\t' '{print $NF}' | head -n 1)
 
 if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT/$APP_NAME" ]; then
     echo "[FATAL] Mount sequence failed or app bundle corrupt within DMG wrapper."
