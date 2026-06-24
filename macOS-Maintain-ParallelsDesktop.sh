@@ -7,14 +7,21 @@
 
 APP_NAME="Parallels Desktop.app"
 APP_PATH="/Applications/$APP_NAME"
-DOWNLOAD_URL="https://www.parallels.com/directdownload/pd/"
+# DOWNLOAD_URL is resolved at runtime from the update feed (see PHASE 1). The old
+# www.parallels.com/directdownload/pd/ link now redirects to the small online
+# web-installer stub ("Install Parallels Desktop.dmg", ~2 MB) which contains NO
+# "Parallels Desktop.app" bundle, so the mount/bundle check below always failed.
+DOWNLOAD_URL=""
 
 # Apple Developer Team ID for Parallels International GmbH (also used for kext consent).
 EXPECTED_TEAMID="4C6364ACXT"
 
-# Major versions whose update feeds we scan to discover the latest release. Add the
-# next major here when Parallels ships it; the script picks the highest version found.
-PD_MAJORS="19 20 21 22"
+# Major versions whose update feeds we scan to discover the latest release. Parallels
+# moved to YEAR-ALIGNED majors (v26 == 2026), skipping 21-25, so a hardcoded list went
+# stale and pinned us to the old v20. Instead scan legacy majors (19-20) plus every
+# year-aligned major from 26 up to (current 2-digit year + 1) for early pre-releases.
+# Missing years simply return no feed and are skipped; the highest build found wins.
+PD_MAJORS="19 20 $(seq 26 $(( $(date +%y) + 1 )))"
 
 TRACKER_PLIST="/Library/Preferences/com.company.patching.parallels.plist"
 TEMP_DIR="/private/tmp/parallels_update"
@@ -25,28 +32,34 @@ echo "[START] Interrogating Parallels remote asset parameters..."
 # ------------------------------------------------------------------------------
 # PHASE 1: RESOLVE LATEST VERSION FROM THE OFFICIAL UPDATE FEEDS
 # ------------------------------------------------------------------------------
-# The old approach tracked the directdownload stub's ETag, which rotates on CDN
-# re-replication and triggered needless reinstalls. Instead, read the real version
-# from update.parallels.com and keep the directdownload URL (it always serves latest).
+# The old approach used www.parallels.com/directdownload/pd/, which now redirects to a
+# tiny online web-installer stub (no "Parallels Desktop.app" inside) and broke the mount.
+# Each feed publishes the real full-app installer (with "Parallels Desktop.app" inside)
+# via a <FilePath>...ParallelsDesktop-<ver>-<build>.dmg</FilePath> element. We read both
+# the URL and the version straight from there, and keep whichever feed advertises the
+# highest build. This replaces the directdownload stub that no longer ships the bundle.
 VENDOR_VERSION=""
 for maj in $PD_MAJORS; do
     feed=$(curl -fsS "https://update.parallels.com/desktop/v${maj}/parallels/parallels_updates.xml" --connect-timeout 10 --max-time 20 2>/dev/null)
     [ -z "$feed" ] && continue
-    MA=$(echo "$feed" | grep -oiE '<Major>[0-9]+'       | head -1 | grep -oE '[0-9]+')
-    MI=$(echo "$feed" | grep -oiE '<Minor>[0-9]+'       | head -1 | grep -oE '[0-9]+')
-    SM=$(echo "$feed" | grep -oiE '<SubMinor>[0-9]+'    | head -1 | grep -oE '[0-9]+')
-    SS=$(echo "$feed" | grep -oiE '<SubSubMinor>[0-9]+' | head -1 | grep -oE '[0-9]+')
-    [ -z "$MA" ] && continue
-    v="${MA}.${MI}.${SM}.${SS}"
-    VENDOR_VERSION=$(printf '%s\n%s\n' "$VENDOR_VERSION" "$v" | grep -v '^$' | sort -V | tail -1)
+    url=$(echo "$feed" | grep -oiE 'https?://[^<> "]+/ParallelsDesktop-[0-9.]+-[0-9]+\.dmg' | head -1)
+    [ -z "$url" ] && continue
+    # ParallelsDesktop-20.4.2-55999.dmg -> 20.4.2.55999 (dotted, so sort -V orders it)
+    v=$(echo "$url" | grep -oE 'ParallelsDesktop-[0-9.]+-[0-9]+' | sed -E 's/ParallelsDesktop-//; s/-/./')
+    [ -z "$v" ] && continue
+    if [ -z "$VENDOR_VERSION" ] || [ "$(printf '%s\n%s\n' "$VENDOR_VERSION" "$v" | sort -V | tail -1)" = "$v" ]; then
+        VENDOR_VERSION="$v"
+        DOWNLOAD_URL="$url"
+    fi
 done
 
-if [ -z "$VENDOR_VERSION" ]; then
-    echo "[WARN] Could not resolve a version from Parallels update feeds. Skipping cycle."
+if [ -z "$DOWNLOAD_URL" ]; then
+    echo "[WARN] Could not resolve a full-app DMG from Parallels update feeds. Skipping cycle."
     exit 0
 fi
 
 echo "[INFO] Latest Version Live on Vendor CDN: $VENDOR_VERSION"
+echo "[INFO] Resolved installer URL: $DOWNLOAD_URL"
 
 
 # ------------------------------------------------------------------------------

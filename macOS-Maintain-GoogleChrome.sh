@@ -7,10 +7,13 @@
 
 APP_NAME="Google Chrome.app"
 APP_PATH="/Applications/$APP_NAME"
-# Universal stable DMG. The old unauthenticated googlechrome.pkg path now 404s
-# (the PKG requires a per-session accept_tos token from the enterprise portal),
-# so we pull the always-current DMG and copy the app bundle into place instead.
-DOWNLOAD_URL="https://dl.google.com/chrome/mac/stable/GoogleChrome.dmg"
+# Universal stable DMG (current Apple-silicon + Intel build).
+# NOTE: the shorter dl.google.com/chrome/mac/stable/GoogleChrome.dmg path still
+# returns HTTP 200 but is a FROZEN 2015 artifact (Chrome 47.x, ~63 MB, still ships
+# PepperFlash) — pulling it would DOWNGRADE every machine. The universal/stable/GGRO
+# path is the live channel (~228 MB, current version) and is what Google's own
+# enterprise tooling uses.
+DOWNLOAD_URL="https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
 TEMP_DIR="/private/tmp/chrome_update"
 DMG_PATH="$TEMP_DIR/GoogleChrome.dmg"
 
@@ -90,6 +93,25 @@ if ! /usr/bin/codesign --verify --deep --strict "$MOUNT_POINT/$APP_NAME" 2>/dev/
     exit 1
 fi
 echo "[SECURITY] App signature verified (Team ID $EXPECTED_TEAMID)."
+
+# chromiumdash publishes the newest Stable push, which can lead the universal DMG on
+# the CDN by a few hours. Comparing the installed build against that leading number
+# meant LOCAL_VERSION never matched VENDOR_VERSION, so every run re-downloaded and
+# re-copied the SAME build. Trust the real bundle inside the DMG instead: if it already
+# matches what's installed, exit compliant rather than copying the same binary again.
+DMG_VERSION=$(defaults read "$MOUNT_POINT/$APP_NAME/Contents/Info.plist" "CFBundleShortVersionString" 2>/dev/null)
+# Never downgrade: only copy when the DMG build is strictly newer than what's installed.
+# (If the app is missing, LOCAL_VERSION is empty and we fall through to a fresh install.)
+if [ -n "$DMG_VERSION" ] && [ -n "$LOCAL_VERSION" ]; then
+    NEWEST=$(printf '%s\n%s\n' "$LOCAL_VERSION" "$DMG_VERSION" | sort -V | tail -1)
+    if [ "$NEWEST" = "$LOCAL_VERSION" ]; then
+        echo "[COMPLIANT] Installed version ($LOCAL_VERSION) is >= current DMG build ($DMG_VERSION). No copy needed."
+        hdiutil detach "$MOUNT_POINT" -force
+        rm -rf "$TEMP_DIR"
+        exit 0
+    fi
+fi
+[ -n "$DMG_VERSION" ] && VENDOR_VERSION="$DMG_VERSION"
 
 echo "[INFO] Overwriting older binary in /Applications..."
 rm -rf "$APP_PATH"

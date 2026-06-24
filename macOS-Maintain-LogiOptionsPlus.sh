@@ -98,8 +98,14 @@ fi
 echo "[INFO] Inflating zip container..."
 unzip -q -o "$ZIP_PATH" -d "$TEMP_DIR"
 
-# Locate the app installer wrapper unzipped inside the folder
-INSTALLER_APP=$(find "$TEMP_DIR" -name "logioptionsplus_installer.app" -type d | head -n 1)
+# macOS-built zips carry a __MACOSX/ folder of AppleDouble resource-fork stubs that
+# mirror the real tree, including a fake "__MACOSX/logioptionsplus_installer.app" with
+# no executable inside. Drop it so the find below can't latch onto the stub and then
+# fail with "No such file or directory" when running the installer binary.
+rm -rf "$TEMP_DIR/__MACOSX"
+
+# Locate the app installer wrapper unzipped inside the folder (never under __MACOSX).
+INSTALLER_APP=$(find "$TEMP_DIR" -name "logioptionsplus_installer.app" -type d -not -path '*/__MACOSX/*' | head -n 1)
 
 if [ -z "$INSTALLER_APP" ] || [ ! -d "$INSTALLER_APP" ]; then
     echo "[FATAL] Failed to unpack a valid logioptionsplus_installer.app package layout."
