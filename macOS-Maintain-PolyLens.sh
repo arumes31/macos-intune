@@ -10,8 +10,14 @@
 # checked so version detection keeps working across the transition.
 APP_CANDIDATES=("/Applications/Poly Lens.app" "/Applications/HP Poly Studio.app")
 
-# Local database tracker (records the last version we installed) to minimize WAN use.
-TRACKER_PLIST="/Library/Preferences/com.company.patching.polylens.plist"
+# Local tracker (records the last version we installed) to minimize WAN use.
+# IMPORTANT: a PLAIN file under Application Support, NOT a plist in /Library/Preferences.
+# Files in /Library/Preferences are cfprefsd-managed preference domains: writing to them
+# directly with `defaults` "works", but cfprefsd later flushes its in-memory cache back
+# over the file and silently drops the key, so the next run reads an empty LastVersion
+# and needlessly re-installs every cycle. A flat file outside Preferences is immune.
+TRACKER_DIR="/Library/Application Support/CompanyPatching"
+TRACKER_FILE="$TRACKER_DIR/polylens.version"
 TEMP_DIR="/private/tmp/poly_update"
 DMG_PATH="$TEMP_DIR/PolyLens.dmg"
 
@@ -55,8 +61,8 @@ for c in "${APP_CANDIDATES[@]}"; do
     if [ -d "$c" ]; then INSTALLED_PATH="$c"; break; fi
 done
 
-if [ -n "$INSTALLED_PATH" ] && [ -f "$TRACKER_PLIST" ]; then
-    LOCAL_RECORDED_VERSION=$(defaults read "$TRACKER_PLIST" "LastVersion" 2>/dev/null)
+if [ -n "$INSTALLED_PATH" ] && [ -f "$TRACKER_FILE" ]; then
+    LOCAL_RECORDED_VERSION=$(cat "$TRACKER_FILE" 2>/dev/null)
 
     if [ "$VENDOR_VERSION" = "$LOCAL_RECORDED_VERSION" ]; then
         echo "[COMPLIANT] Poly Lens is already up-to-date ($VENDOR_VERSION). Exiting with ZERO download."
@@ -88,16 +94,54 @@ echo "[CLEAR] Environment safe. Proposing deployment orchestration phase..."
 # ------------------------------------------------------------------------------
 mkdir -p "$TEMP_DIR"
 
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
+# The DMG is ~225 MB; 600s was too tight on throttled/VPN'd managed Macs and truncated
+# the transfer. A truncated DMG loses its trailing "koly" block, which is exactly what
+# makes hdiutil report "image not recognized". Give slow links 30 min to finish.
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
-if [ "$HTTP_STATUS" -ne 200 ]; then
+# Default to "000" so an empty / non-numeric value can never make the guard below
+# error out (integer compare) and get silently treated as success. Use string compare.
+HTTP_STATUS=${HTTP_STATUS:-000}
+if [ "$HTTP_STATUS" != "200" ]; then
     echo "[FATAL] Download failed with unexpected HTTP Network Token: $HTTP_STATUS"
     rm -rf "$TEMP_DIR"
     exit 1
 fi
 
-echo "[INFO] Mounting Poly Lens installer package container..."
-MOUNT_POINT=$(hdiutil attach -nobrowse -readonly "$DMG_PATH" | grep -E '/Volumes/.*' | awk -F'\t' '{print $NF}' | head -n 1)
+# Confirm the payload landed and is plausibly the full installer.
+if [ ! -s "$DMG_PATH" ]; then
+    echo "[FATAL] Download reported HTTP 200 but no file was written to $DMG_PATH. Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+DMG_BYTES=$(stat -f%z "$DMG_PATH" 2>/dev/null || echo 0)
+if [ "$DMG_BYTES" -lt 52428800 ]; then   # < 50 MB: truncated download, not the ~225 MB full app
+    echo "[FATAL] Downloaded DMG is only $DMG_BYTES bytes (expected ~225 MB). Likely truncated. Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Validate the disk image structure (needs the trailing koly block) before attaching,
+# so a truncated/corrupt file is reported plainly instead of leaking the misleading
+# hdiutil "image not recognized" to the Intune console.
+if ! hdiutil imageinfo "$DMG_PATH" >/dev/null 2>&1; then
+    echo "[FATAL] Downloaded file is not a valid disk image (corrupt or partial transfer). Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+echo "[INFO] Mounting Poly Lens installer package container ($DMG_BYTES bytes)..."
+# Capture hdiutil's own output (incl. stderr) so any future failure is self-explanatory;
+# `yes |` harmlessly accepts a SLA prompt if the image ever carries one.
+ATTACH_OUT=$(yes 2>/dev/null | hdiutil attach -nobrowse -noverify -noautoopen -readonly "$DMG_PATH" 2>&1)
+ATTACH_RC=$?
+if [ "$ATTACH_RC" -ne 0 ]; then
+    echo "[FATAL] hdiutil attach failed (rc=$ATTACH_RC): $ATTACH_OUT"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+MOUNT_POINT=$(echo "$ATTACH_OUT" | grep -E '/Volumes/.*' | awk -F'\t' '{print $NF}' | head -n 1)
 
 if [ -z "$MOUNT_POINT" ]; then
     echo "[FATAL] Mount sequence failed for the downloaded DMG."
@@ -136,8 +180,9 @@ if /usr/sbin/installer -pkg "$PKG_FILE" -target /; then
     # PHASE 5: UPDATE THE LOCAL TRACKER DATABASE
     # ------------------------------------------------------------------------------
     echo "[DATABASE] Logging installed version for subsequent script runs..."
-    defaults write "$TRACKER_PLIST" "LastVersion" "$VENDOR_VERSION"
-    chmod 644 "$TRACKER_PLIST"
+    mkdir -p "$TRACKER_DIR"
+    printf '%s\n' "$VENDOR_VERSION" > "$TRACKER_FILE"
+    chmod 644 "$TRACKER_FILE"
 else
     echo "[ERROR] Native installer framework failed to apply the PKG payload."
     hdiutil detach "$MOUNT_POINT" -force

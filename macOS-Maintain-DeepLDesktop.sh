@@ -16,8 +16,15 @@ INDEX_URL="https://appdownload.deepl.com/macos/"
 # Apple Developer Team ID for DeepL SE. The mounted app must match before we copy it.
 EXPECTED_TEAMID="4N8BGCG336"
 
-# Dedicated local plist to track the installed version across runs
-TRACKER_PLIST="/Library/Preferences/com.company.patching.deepl.plist"
+# Dedicated local tracker for the installed version across runs.
+# IMPORTANT: this is a PLAIN file under Application Support, NOT a plist in
+# /Library/Preferences. Anything in /Library/Preferences is a cfprefsd-managed
+# preference domain: writing to it directly with `defaults` "works", but cfprefsd
+# later flushes its in-memory cache back over the file and silently drops the key,
+# so the next run reads an empty LastVersion and needlessly re-installs every cycle.
+# A flat file outside Preferences is immune to that and is read/written directly.
+TRACKER_DIR="/Library/Application Support/CompanyPatching"
+TRACKER_FILE="$TRACKER_DIR/deepl.version"
 TEMP_DIR="/private/tmp/deepl_update"
 DMG_PATH="$TEMP_DIR/DeepL.dmg"
 
@@ -47,8 +54,8 @@ echo "[INFO] Latest Version Live on Vendor CDN: $VENDOR_VERSION"
 # ------------------------------------------------------------------------------
 PROCEED_INSTALL=true
 
-if [ -d "$APP_PATH" ] && [ -f "$TRACKER_PLIST" ]; then
-    LOCAL_RECORDED_VERSION=$(defaults read "$TRACKER_PLIST" "LastVersion" 2>/dev/null)
+if [ -d "$APP_PATH" ] && [ -f "$TRACKER_FILE" ]; then
+    LOCAL_RECORDED_VERSION=$(cat "$TRACKER_FILE" 2>/dev/null)
 
     if [ "$VENDOR_VERSION" = "$LOCAL_RECORDED_VERSION" ]; then
         echo "[COMPLIANT] DeepL is already up-to-date ($VENDOR_VERSION). Exiting with ZERO download overhead."
@@ -114,8 +121,9 @@ if cp -R "$MOUNT_POINT/$APP_NAME" "/Applications/"; then
     # PHASE 4: UPDATE THE LOCAL TRACKER DATABASE
     # ------------------------------------------------------------------------------
     echo "[DATABASE] Logging installed version for next evaluation run..."
-    defaults write "$TRACKER_PLIST" "LastVersion" "$VENDOR_VERSION"
-    chmod 644 "$TRACKER_PLIST" # Ensure readability
+    mkdir -p "$TRACKER_DIR"
+    printf '%s\n' "$VENDOR_VERSION" > "$TRACKER_FILE"
+    chmod 644 "$TRACKER_FILE" # Ensure readability
 else
     echo "[ERROR] File system copy exception occurred during installation phase."
     hdiutil detach "$MOUNT_POINT" -force
