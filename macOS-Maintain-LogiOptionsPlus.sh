@@ -87,10 +87,32 @@ echo "[CLEAR] Environment safe. Proceeding with download sequence."
 # ------------------------------------------------------------------------------
 mkdir -p "$TEMP_DIR"
 
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$ZIP_PATH")
+# 600s was too tight on throttled/VPN'd managed Macs and truncated the transfer; give
+# slow links 30 min to finish the pull.
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$ZIP_PATH")
 
-if [ "$HTTP_STATUS" -ne 200 ]; then
+# Default to "000" so an empty / non-numeric value can never make the guard below
+# error out (integer compare) and get silently treated as success. Use string compare.
+HTTP_STATUS=${HTTP_STATUS:-000}
+if [ "$HTTP_STATUS" != "200" ]; then
     echo "[FATAL] Download pipeline failed with network token error: $HTTP_STATUS"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Confirm the payload actually landed on disk.
+if [ ! -s "$ZIP_PATH" ]; then
+    echo "[FATAL] Download reported HTTP 200 but no file was written to $ZIP_PATH. Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Verify archive integrity before inflating. A truncated transfer (slow/VPN'd link)
+# would otherwise reach the find below and surface as a confusing "missing installer
+# layout" error instead of a clear "download incomplete" message. (-t is also race-free:
+# a complete-but-newer ZIP passes and installs as intended.)
+if ! unzip -tqq "$ZIP_PATH" >/dev/null 2>&1; then
+    echo "[FATAL] Downloaded ZIP failed integrity test (corrupt or partial transfer). Aborting."
     rm -rf "$TEMP_DIR"
     exit 1
 fi

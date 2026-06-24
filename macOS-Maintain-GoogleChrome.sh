@@ -65,17 +65,56 @@ fi
 echo "[PROCEEDING] Starting download and upgrade pipeline..."
 mkdir -p "$TEMP_DIR"
 
-# Resilient download with HTTP validation
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
+# Resilient download with HTTP validation. The universal DMG is ~265 MB; 600s was too
+# tight on throttled/VPN'd managed Macs and truncated the transfer. A truncated DMG
+# loses its trailing "koly" block, which is exactly what makes hdiutil report
+# "image not recognized". Give slow links 30 min to finish the pull.
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
-if [ "$HTTP_STATUS" -ne 200 ]; then
+# Default to "000" so an empty / non-numeric value can never make the guard below
+# error out (integer compare) and get silently treated as success. Use string compare.
+HTTP_STATUS=${HTTP_STATUS:-000}
+if [ "$HTTP_STATUS" != "200" ]; then
     echo "[FATAL] Network error: CDN returned HTTP Status $HTTP_STATUS. Aborting installation."
     rm -rf "$TEMP_DIR"
     exit 1
 fi
 
-echo "[INFO] Mounting disk image volume..."
-MOUNT_POINT=$(hdiutil attach -nobrowse -readonly "$DMG_PATH" | grep -E '/Volumes/.*' | awk -F'\t' '{print $NF}' | head -n 1)
+# Confirm the payload landed and is plausibly the full installer (missing file or a
+# truncated transfer would otherwise reach hdiutil and fail cryptically).
+if [ ! -s "$DMG_PATH" ]; then
+    echo "[FATAL] Download reported HTTP 200 but no file was written to $DMG_PATH. Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+DMG_BYTES=$(stat -f%z "$DMG_PATH" 2>/dev/null || echo 0)
+if [ "$DMG_BYTES" -lt 52428800 ]; then   # < 50 MB: truncated download, not the ~265 MB full app
+    echo "[FATAL] Downloaded DMG is only $DMG_BYTES bytes (expected ~265 MB). Likely truncated. Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Validate the disk image structure (needs the trailing koly block) before attaching,
+# so a truncated/corrupt file is reported plainly instead of leaking the misleading
+# hdiutil "image not recognized" to the Intune console.
+if ! hdiutil imageinfo "$DMG_PATH" >/dev/null 2>&1; then
+    echo "[FATAL] Downloaded file is not a valid disk image (corrupt or partial transfer). Aborting."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+echo "[INFO] Mounting disk image volume ($DMG_BYTES bytes)..."
+# Capture hdiutil's own output (incl. stderr) so any future failure is self-explanatory;
+# `yes |` harmlessly accepts a SLA prompt if the image ever carries one.
+ATTACH_OUT=$(yes 2>/dev/null | hdiutil attach -nobrowse -noverify -noautoopen -readonly "$DMG_PATH" 2>&1)
+ATTACH_RC=$?
+if [ "$ATTACH_RC" -ne 0 ]; then
+    echo "[FATAL] hdiutil attach failed (rc=$ATTACH_RC): $ATTACH_OUT"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+MOUNT_POINT=$(echo "$ATTACH_OUT" | grep -E '/Volumes/.*' | awk -F'\t' '{print $NF}' | head -n 1)
 
 if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT/$APP_NAME" ]; then
     echo "[FATAL] Mount sequence failed or app bundle corrupt within DMG wrapper."
