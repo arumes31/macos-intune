@@ -26,6 +26,7 @@ equally well from any MDM, Jamf policy, or a `launchd` job.
 | `macOS-Maintain-AngryIPScanner.sh` | Angry IP Scanner | GitHub Releases API | `.app` in `.zip` | Unsigned (De-quarantine only) |
 | `macOS-Maintain-Figma.sh` | Figma | Figma Release API | `.app` in `.zip` | Team ID `T8RA8NE3B7` |
 | `macOS-Maintain-OBSStudio.sh` | OBS Studio | GitHub Releases API | `.app` in `.dmg` | Team ID `2MMRE5MTB8` |
+| `macOS-Maintain-AdobeCreativeCloud.sh` | Adobe Creative Cloud | Adobe ccdConfig XML | `Install.app` in `.dmg` | Team ID `JQ525L2MZD` |
 
 \* Logi Options+ has no reliable public version endpoint, so it uses HTTP ETag/Content-Length
 change detection instead of a version comparison. See [Per-app notes](#per-app-notes).
@@ -137,6 +138,7 @@ is additionally documented in Parallels' own kernel-extension KB.
 - **Angry IP Scanner** — Queries GitHub Releases API to resolve the latest version and download URL, extracts the app bundle from the ZIP container, and installs it. Note: The app bundle is currently unsigned by the vendor, so codesign verification is skipped and the quarantine attribute is stripped to allow launching.
 - **Figma** — Queries the Figma Release API (`desktop.figma.com`) to resolve the latest version and download URL, extracts the app bundle from the ZIP container, verifies its codesign Team ID `T8RA8NE3B7`, and installs it.
 - **OBS Studio** — Queries GitHub Releases API to resolve the latest version and download URL, downloads the architecture-specific DMG, verifies its codesign Team ID `2MMRE5MTB8`, and installs it.
+- **Adobe Creative Cloud** — Queries the Adobe ccdConfig API (`ffc-static-cdn.oobesaas.adobe.com`) to resolve the latest version, builds the dynamic download URL for the architecture-specific DMG, mounts it, verifies its codesign Team ID `JQ525L2MZD`, and runs the native installer silently using `Install.app/Contents/MacOS/Install --mode=silent`.
 
 ### Tracker plists
 
@@ -170,6 +172,7 @@ download01.logi.com
 update.parallels.com               www.parallels.com
 rdc.adobe.io                       ardownload2.adobe.com
 desktop.figma.com
+ffc-static-cdn.oobesaas.adobe.com  ccmdls.adobe.com
 ```
 
 ---
