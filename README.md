@@ -25,6 +25,7 @@ equally well from any MDM, Jamf policy, or a `launchd` job.
 | `macOS-Maintain-AdobeReader.sh` | Adobe Acrobat Reader | Adobe RDC products API | `.pkg` in `.dmg` | Team ID `JQ525L2MZD` |
 | `macOS-Maintain-AngryIPScanner.sh` | Angry IP Scanner | GitHub Releases API | `.app` in `.zip` | Unsigned (De-quarantine only) |
 | `macOS-Maintain-Figma.sh` | Figma | Figma Release API | `.app` in `.zip` | Team ID `T8RA8NE3B7` |
+| `macOS-Maintain-OBSStudio.sh` | OBS Studio | GitHub Releases API | `.app` in `.dmg` | Team ID `2MMRE5MTB8` |
 
 \* Logi Options+ has no reliable public version endpoint, so it uses HTTP ETag/Content-Length
 change detection instead of a version comparison. See [Per-app notes](#per-app-notes).
@@ -135,6 +136,7 @@ is additionally documented in Parallels' own kernel-extension KB.
 - **Adobe Acrobat Reader** — Queries the Adobe RDC products API (`rdc.adobe.io`) to resolve the latest version and builds the direct download URL. Mounts the DMG and runs the `.pkg` installer via `installer -pkg`.
 - **Angry IP Scanner** — Queries GitHub Releases API to resolve the latest version and download URL, extracts the app bundle from the ZIP container, and installs it. Note: The app bundle is currently unsigned by the vendor, so codesign verification is skipped and the quarantine attribute is stripped to allow launching.
 - **Figma** — Queries the Figma Release API (`desktop.figma.com`) to resolve the latest version and download URL, extracts the app bundle from the ZIP container, verifies its codesign Team ID `T8RA8NE3B7`, and installs it.
+- **OBS Studio** — Queries GitHub Releases API to resolve the latest version and download URL, downloads the architecture-specific DMG, verifies its codesign Team ID `2MMRE5MTB8`, and installs it.
 
 ### Tracker plists
 
