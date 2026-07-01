@@ -1,2 +1,3 @@
 # Local staging area for downloaded installer media (DMG/PKG/ZIP) — never commit binaries
 temp/
+cw-automate/

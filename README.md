@@ -22,6 +22,7 @@ equally well from any MDM, Jamf policy, or a `launchd` job.
 | `macOS-deepLdesktop-detect_patch.sh` | DeepL | DeepL versioned index | `.app` in `.dmg` | Team ID `4N8BGCG336` |
 | `macOS-Maintain-LogiOptionsPlus.sh` | Logi Options+ | ETag / Content-Length* | `.app` installer in `.zip` | Team ID `QED4VVPZWA` |
 | `macOS-parallelsdesktop-detect_patch.sh` | Parallels Desktop | `update.parallels.com` feed | `inittool` from `.dmg` | Team ID `4C6364ACXT` |
+| `macOS-Maintain-AdobeReader.sh` | Adobe Acrobat Reader | Adobe RDC products API | `.pkg` in `.dmg` | Team ID `JQ525L2MZD` |
 
 \* Logi Options+ has no reliable public version endpoint, so it uses HTTP ETag/Content-Length
 change detection instead of a version comparison. See [Per-app notes](#per-app-notes).
@@ -129,6 +130,7 @@ is additionally documented in Parallels' own kernel-extension KB.
 - **Parallels Desktop** — Resolves the latest version by scanning the
   `update.parallels.com` feeds. **When Parallels ships a new major version, add it to the
   `PD_MAJORS` variable** at the top of the script (e.g. `PD_MAJORS="20 21 22 23"`).
+- **Adobe Acrobat Reader** — Queries the Adobe RDC products API (`rdc.adobe.io`) to resolve the latest version and builds the direct download URL. Mounts the DMG and runs the `.pkg` installer via `installer -pkg`.
 
 ### Tracker plists
 
@@ -160,6 +162,7 @@ api.silica-prod01.io.lens.poly.com swupdate.lens.poly.com
 appdownload.deepl.com
 download01.logi.com
 update.parallels.com               www.parallels.com
+rdc.adobe.io                       ardownload2.adobe.com
 ```
 
 ---
