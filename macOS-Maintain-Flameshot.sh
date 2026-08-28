@@ -7,7 +7,8 @@
 
 APP_NAME="Flameshot.app"
 APP_PATH="/Applications/$APP_NAME"
-TEMP_DIR="/private/tmp/flameshot_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/flameshot_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/Flameshot.dmg"
 
 echo "[START] Initiating Flameshot update assessment..."
@@ -28,7 +29,7 @@ echo "[INFO] System Architecture detected: $ARCH (asset tag: $ASSET_ARCH)"
 # PHASE 1: ZERO-DOWNLOAD API VERSION CHECK
 # ------------------------------------------------------------------------------
 echo "[INFO] Fetching metadata from latest stable GitHub release..."
-RELEASE_JSON=$(curl -sL "https://api.github.com/repos/flameshot-org/flameshot/releases/latest")
+RELEASE_JSON=$(curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 30 "https://api.github.com/repos/flameshot-org/flameshot/releases/latest")
 
 if [ -z "$RELEASE_JSON" ]; then
     echo "[WARN] Unable to reach GitHub API. Skipping patch cycle to preserve network."
@@ -77,10 +78,10 @@ fi
 # PHASE 3: REMEDIATION & IN-PLACE UPGRADE
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
-    echo "[PROCEEDING] Downloading payload from URL: $DOWNLOAD_URL"
+    echo "[PROCEEDING] Downloading the architecture-matched release payload."
     mkdir -p "$TEMP_DIR"
     
-    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
+    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
     if [ "$HTTP_STATUS" -ne 200 ]; then
         echo "[FATAL] Download failed with unexpected HTTP Network Token: $HTTP_STATUS"
@@ -91,7 +92,7 @@ if [ "$PROCEED_INSTALL" = true ]; then
     # SECURITY: Flameshot is a community build (no pinned Team ID), but each GitHub
     # release publishes an official "<asset>.sha256sum". Verify the download against it
     # to catch tampering / corrupted transfers before we mount and install.
-    EXPECTED_SHA=$(curl -fsSL --retry 3 --connect-timeout 15 "${DOWNLOAD_URL}.sha256sum" | awk '{print $1}')
+    EXPECTED_SHA=$(curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 --connect-timeout 15 --max-time 60 "${DOWNLOAD_URL}.sha256sum" | awk '{print $1}')
     ACTUAL_SHA=$(/usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')
     if [ -z "$EXPECTED_SHA" ] || [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
         echo "[FATAL] SHA-256 checksum mismatch (expected '$EXPECTED_SHA', got '$ACTUAL_SHA'). Refusing to install."

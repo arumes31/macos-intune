@@ -103,9 +103,18 @@ publisher before installing:
 - **Flameshot** (a community build with no pinned Team ID) is verified against the
   **SHA-256 checksum that GitHub publishes** alongside each release asset, plus a
   `codesign` validity check.
+- **Angry IP Scanner** is unsigned. Its script therefore requires an explicit
+  `ANGRYIP_EXPECTED_SHA256` value in the Intune script environment before it will
+  install or replace the app. Update this pin only after reviewing a new release.
 
-A failed verification **aborts the install with exit 1** — the script will never install an
-unsigned, tampered, or unexpectedly-signed payload. Team IDs are sourced from the
+All downloads restrict both initial and redirected transport to HTTPS. Installer
+URLs are not written to Intune logs because vendor URLs can contain short-lived
+authorization parameters. Each root-run script uses a private, unpredictable
+`mktemp` directory and removes it on exit.
+
+A failed verification **aborts the install with exit 1** — the scripts never install a
+tampered or unexpectedly-signed payload, and an unsigned payload requires an explicit
+operator-managed hash pin. Team IDs are sourced from the
 [Installomator](https://github.com/Installomator/Installomator) project; Parallels' Team ID
 is additionally documented in Parallels' own kernel-extension KB.
 
@@ -135,7 +144,7 @@ is additionally documented in Parallels' own kernel-extension KB.
   `update.parallels.com` feeds. **When Parallels ships a new major version, add it to the
   `PD_MAJORS` variable** at the top of the script (e.g. `PD_MAJORS="20 21 22 23"`).
 - **Adobe Acrobat Reader** — Queries the Adobe RDC products API (`rdc.adobe.io`) to resolve the latest version and builds the direct download URL. Mounts the DMG and runs the `.pkg` installer via `installer -pkg`.
-- **Angry IP Scanner** — Queries GitHub Releases API to resolve the latest version and download URL, extracts the app bundle from the ZIP container, and installs it. Note: The app bundle is currently unsigned by the vendor, so codesign verification is skipped and the quarantine attribute is stripped to allow launching.
+- **Angry IP Scanner** — Queries GitHub Releases API to resolve the latest version and download URL. Because the vendor app is unsigned, installation fails closed unless the ZIP matches the operator-pinned `ANGRYIP_EXPECTED_SHA256` value. The quarantine attribute is removed only after this verification.
 - **Figma** — Queries the Figma Release API (`desktop.figma.com`) to resolve the latest version and download URL, extracts the app bundle from the ZIP container, verifies its codesign Team ID `T8RA8NE3B7`, and installs it.
 - **OBS Studio** — Queries GitHub Releases API to resolve the latest version and download URL, downloads the architecture-specific DMG, verifies its codesign Team ID `2MMRE5MTB8`, and installs it.
 - **Adobe Creative Cloud** — Queries the Adobe ccdConfig API (`ffc-static-cdn.oobesaas.adobe.com`) to resolve the latest version, builds the dynamic download URL for the architecture-specific DMG, mounts it, verifies its codesign Team ID `JQ525L2MZD`, and runs the native installer silently using `Install.app/Contents/MacOS/Install --mode=silent`.

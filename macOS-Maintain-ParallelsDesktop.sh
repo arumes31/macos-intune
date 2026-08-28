@@ -24,7 +24,8 @@ EXPECTED_TEAMID="4C6364ACXT"
 PD_MAJORS="19 20 $(seq 26 $(( $(date +%y) + 1 )))"
 
 TRACKER_PLIST="/Library/Preferences/com.company.patching.parallels.plist"
-TEMP_DIR="/private/tmp/parallels_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/parallels_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/ParallelsDesktop.dmg"
 
 echo "[START] Interrogating Parallels remote asset parameters..."
@@ -40,7 +41,7 @@ echo "[START] Interrogating Parallels remote asset parameters..."
 # highest build. This replaces the directdownload stub that no longer ships the bundle.
 VENDOR_VERSION=""
 for maj in $PD_MAJORS; do
-    feed=$(curl -fsS "https://update.parallels.com/desktop/v${maj}/parallels/parallels_updates.xml" --connect-timeout 10 --max-time 20 2>/dev/null)
+    feed=$(curl -fsS --proto '=https' --proto-redir '=https' "https://update.parallels.com/desktop/v${maj}/parallels/parallels_updates.xml" --connect-timeout 10 --max-time 20 2>/dev/null)
     [ -z "$feed" ] && continue
     url=$(echo "$feed" | grep -oiE 'https?://[^<> "]+/ParallelsDesktop-[0-9.]+-[0-9]+\.dmg' | head -1)
     [ -z "$url" ] && continue
@@ -59,7 +60,7 @@ if [ -z "$DOWNLOAD_URL" ]; then
 fi
 
 echo "[INFO] Latest Version Live on Vendor CDN: $VENDOR_VERSION"
-echo "[INFO] Resolved installer URL: $DOWNLOAD_URL"
+echo "[INFO] Resolved a vendor installer for version $VENDOR_VERSION."
 
 
 # ------------------------------------------------------------------------------
@@ -102,7 +103,7 @@ mkdir -p "$TEMP_DIR"
 
 # The full app DMG is ~205 MB; 900s was too tight on throttled/VPN'd managed Macs and
 # truncated the transfer. Give it 30 min so slow links still complete the pull.
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
 # Default to "000" so an empty / non-numeric value can never make the guard below
 # error out and get silently treated as success. That bug let a failed download fall

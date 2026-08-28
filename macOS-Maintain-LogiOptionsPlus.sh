@@ -20,7 +20,8 @@ EXPECTED_TEAMID="QED4VVPZWA"
 
 # Local system database storage tracker for zero-bandwidth loops
 TRACKER_PLIST="/Library/Preferences/com.company.patching.logioptionsplus.plist"
-TEMP_DIR="/private/tmp/logi_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/logi_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 ZIP_PATH="$TEMP_DIR/logioptionsplus_installer.zip"
 
 echo "[START] Querying Logitech content delivery networks..."
@@ -28,7 +29,7 @@ echo "[START] Querying Logitech content delivery networks..."
 # ------------------------------------------------------------------------------
 # PHASE 1: LIGHTWEIGHT REMOTE METADATA ASSESSMENT
 # ------------------------------------------------------------------------------
-SERVER_HEADERS=$(curl -sSLI "$DOWNLOAD_URL" --connect-timeout 10 --max-time 15)
+SERVER_HEADERS=$(curl -fsSLI --proto '=https' --proto-redir '=https' "$DOWNLOAD_URL" --connect-timeout 10 --max-time 15)
 
 if [ -z "$SERVER_HEADERS" ]; then
     echo "[WARN] Logitech server infrastructure is unreachable. Skipping run."
@@ -89,7 +90,7 @@ mkdir -p "$TEMP_DIR"
 
 # 600s was too tight on throttled/VPN'd managed Macs and truncated the transfer; give
 # slow links 30 min to finish the pull.
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$ZIP_PATH")
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$ZIP_PATH")
 
 # Default to "000" so an empty / non-numeric value can never make the guard below
 # error out (integer compare) and get silently treated as success. Use string compare.

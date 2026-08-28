@@ -8,8 +8,10 @@
 
 APP_NAME="Angry IP Scanner.app"
 APP_PATH="/Applications/$APP_NAME"
-TEMP_DIR="/private/tmp/angryip_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/angryip_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 ZIP_PATH="$TEMP_DIR/angryip.zip"
+EXPECTED_SHA256=${ANGRYIP_EXPECTED_SHA256:-}
 
 echo "[START] Initiating Angry IP Scanner version alignment assessment..."
 
@@ -27,7 +29,7 @@ echo "[INFO] System Architecture detected: $ARCH (asset tag: $ASSET_ARCH)"
 # PHASE 1: ZERO-DOWNLOAD API VERSION CHECK
 # ------------------------------------------------------------------------------
 echo "[INFO] Fetching metadata from latest stable GitHub release..."
-RELEASE_JSON=$(curl -sL "https://api.github.com/repos/angryip/ipscan/releases/latest")
+RELEASE_JSON=$(curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 30 "https://api.github.com/repos/angryip/ipscan/releases/latest")
 
 if [ -z "$RELEASE_JSON" ]; then
     echo "[WARN] Unable to reach GitHub API. Skipping patch cycle to preserve network."
@@ -45,7 +47,6 @@ if [ -z "$DOWNLOAD_URL" ]; then
     echo "[FATAL] Script failed to isolate a valid installer URL payload."
     exit 1
 fi
-
 
 # ------------------------------------------------------------------------------
 # PHASE 2: EVALUATE VERSION DRIFT
@@ -83,14 +84,25 @@ echo "[CLEAR] System processes clear. Proceeding to remediation."
 # PHASE 3: REMEDIATION & IN-PLACE UPGRADE
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
-    echo "[PROCEEDING] Downloading payload from URL: $DOWNLOAD_URL"
+    if ! printf '%s' "$EXPECTED_SHA256" | grep -Eq '^[a-fA-F0-9]{64}$'; then
+        echo "[FATAL] ANGRYIP_EXPECTED_SHA256 must pin the approved release asset before installation."
+        exit 1
+    fi
+    echo "[PROCEEDING] Downloading the approved architecture-matched release payload."
     mkdir -p "$TEMP_DIR"
     
-    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$ZIP_PATH")
+    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$ZIP_PATH")
 
-    if [ "$HTTP_STATUS" -ne 200 ]; then
+    HTTP_STATUS=${HTTP_STATUS:-000}
+    if [ "$HTTP_STATUS" != "200" ]; then
         echo "[FATAL] Download failed with unexpected HTTP Status: $HTTP_STATUS"
         rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+
+    ACTUAL_SHA256=$(/usr/bin/shasum -a 256 "$ZIP_PATH" | awk '{print $1}')
+    if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+        echo "[FATAL] Downloaded ZIP does not match ANGRYIP_EXPECTED_SHA256."
         exit 1
     fi
 
@@ -114,9 +126,9 @@ if [ "$PROCEED_INSTALL" = true ]; then
         exit 1
     fi
 
-    # Note: Angry IP Scanner macOS builds are currently unsigned by the vendor,
-    # so standard codesign/Team ID validation is skipped.
-    echo "[SECURITY] Skipping codesign check (vendor package is unsigned)."
+    # Angry IP Scanner macOS builds are unsigned, so installation is allowed only
+    # after matching the operator-pinned release checksum above.
+    echo "[SECURITY] Unsigned vendor payload matched the operator-pinned SHA-256."
 
     echo "[INFO] Overwriting older binaries in /Applications..."
     rm -rf "$APP_PATH"

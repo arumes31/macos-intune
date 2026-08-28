@@ -7,14 +7,15 @@
 
 APP_NAME="VLC.app"
 APP_PATH="/Applications/$APP_NAME"
-TEMP_DIR="/private/tmp/vlc_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/vlc_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/vlc.dmg"
 
 # Apple Developer Team ID for VideoLAN. The mounted app must match before we copy it.
 EXPECTED_TEAMID="75GAHG3SZQ"
 
 # Stable Sparkle Appcast Feed managed by VideoLAN
-APPCAST_URL="http://update.videolan.org/vlc/sparkle/vlc-intel64.xml"
+APPCAST_URL="https://update.videolan.org/vlc/sparkle/vlc-intel64.xml"
 
 echo "[START] Initiating VLC version alignment assessment..."
 
@@ -31,7 +32,7 @@ echo "[INFO] Architecture target classified: $ARCH_SUFFIX"
 # PHASE 1: ZERO-DOWNLOAD APPCAST XML VERSION CHECK
 # ------------------------------------------------------------------------------
 echo "[INFO] Extracting live deployment manifest from VideoLAN..."
-APPCAST_DATA=$(curl -sL "$APPCAST_URL" --connect-timeout 10 --max-time 15)
+APPCAST_DATA=$(curl -fsSL --proto '=https' --proto-redir '=https' "$APPCAST_URL" --connect-timeout 10 --max-time 15)
 
 if [ -z "$APPCAST_DATA" ]; then
     echo "[WARN] Unable to reach VideoLAN Appcast infrastructure. Deferring run."
@@ -97,7 +98,7 @@ if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Downloading optimized DMG payload..."
     mkdir -p "$TEMP_DIR"
     
-    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
+    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
     if [ "$HTTP_STATUS" -ne 200 ]; then
         echo "[FATAL] Download failed from VideoLAN CDNs with HTTP status: $HTTP_STATUS"

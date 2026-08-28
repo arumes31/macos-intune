@@ -18,7 +18,8 @@ APP_CANDIDATES=("/Applications/Poly Lens.app" "/Applications/HP Poly Studio.app"
 # and needlessly re-installs every cycle. A flat file outside Preferences is immune.
 TRACKER_DIR="/Library/Application Support/CompanyPatching"
 TRACKER_FILE="$TRACKER_DIR/polylens.version"
-TEMP_DIR="/private/tmp/poly_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/poly_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/PolyLens.dmg"
 
 # Poly software-update GraphQL endpoint. The old static
@@ -35,7 +36,7 @@ echo "[START] Interrogating Poly cloud update infrastructure..."
 # ------------------------------------------------------------------------------
 # PHASE 1: RESOLVE LIVE VERSION + DOWNLOAD URL VIA API
 # ------------------------------------------------------------------------------
-POLY_JSON=$(curl -fsS "$POLY_API" -X POST -H 'Content-Type: application/json' \
+POLY_JSON=$(curl -fsS --proto '=https' --proto-redir '=https' "$POLY_API" -X POST -H 'Content-Type: application/json' \
     --data-raw "$POLY_QUERY" --connect-timeout 10 --max-time 30)
 
 if [ -z "$POLY_JSON" ]; then
@@ -97,7 +98,7 @@ mkdir -p "$TEMP_DIR"
 # The DMG is ~225 MB; 600s was too tight on throttled/VPN'd managed Macs and truncated
 # the transfer. A truncated DMG loses its trailing "koly" block, which is exactly what
 # makes hdiutil report "image not recognized". Give slow links 30 min to finish.
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
 # Default to "000" so an empty / non-numeric value can never make the guard below
 # error out (integer compare) and get silently treated as success. Use string compare.

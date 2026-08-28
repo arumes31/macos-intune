@@ -15,7 +15,8 @@ APP_PATH="/Applications/$APP_NAME"
 # below is the documented, stable source for the latest macOS Stable PKG.
 EDGE_API_URL="https://edgeupdates.microsoft.com/api/products?view=enterprise"
 
-TEMP_DIR="/private/tmp/edge_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/edge_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 PKG_NAME="MicrosoftEdgeEnterprise.pkg"
 
 # Apple Developer Team ID for Microsoft Corporation. The downloaded PKG must be
@@ -32,7 +33,7 @@ echo "[INFO] Querying Microsoft Edge enterprise update API..."
 # Pull the channel manifest. macOS Stable PKGs are named "MicrosoftEdge-<ver>.pkg"
 # (Beta/Dev carry a word before the dash, e.g. MicrosoftEdgeBeta-...), so anchoring on
 # "MicrosoftEdge-<digit>" cleanly isolates the Stable channel without a JSON parser.
-EDGE_JSON=$(curl -sSL "$EDGE_API_URL" --connect-timeout 10 --max-time 30)
+EDGE_JSON=$(curl -fsSL --proto '=https' --proto-redir '=https' "$EDGE_API_URL" --connect-timeout 10 --max-time 30)
 
 if [ -z "$EDGE_JSON" ]; then
     echo "[WARN] Unable to reach Microsoft Edge update API. Skipping run."
@@ -104,7 +105,7 @@ if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Creating scratch space and pulling down direct target installer payload..."
     mkdir -p "$TEMP_DIR"
     
-    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$FINAL_URL" -o "$TEMP_DIR/$PKG_NAME")
+    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$FINAL_URL" -o "$TEMP_DIR/$PKG_NAME")
 
     if [ "$HTTP_STATUS" -ne 200 ]; then
         echo "[FATAL] Download failed from Microsoft endpoints with HTTP status: $HTTP_STATUS"
