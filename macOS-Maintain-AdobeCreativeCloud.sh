@@ -8,7 +8,8 @@
 
 APP_NAME="Creative Cloud.app"
 APP_PATH="/Applications/Utilities/Adobe Creative Cloud/ACC/$APP_NAME"
-TEMP_DIR="/private/tmp/adobe_cc_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/adobe_cc_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/AdobeCreativeCloud.dmg"
 
 # Apple Developer Team ID for Adobe Inc. The installer inside the DMG must match.
@@ -32,7 +33,7 @@ API_URL="https://ffc-static-cdn.oobesaas.adobe.com/features/v3/${ASSET_ARCH}/ccd
 # ------------------------------------------------------------------------------
 # PHASE 1: RESOLVE LIVE VERSION + DOWNLOAD URL VIA API
 # ------------------------------------------------------------------------------
-API_XML=$(curl -fsS "$API_URL" --connect-timeout 10 --max-time 30)
+API_XML=$(curl -fsS --proto '=https' --proto-redir '=https' "$API_URL" --connect-timeout 10 --max-time 30)
 
 if [ -z "$API_XML" ]; then
     echo "[WARN] Adobe Creative Cloud config API is unreachable. Skipping cycle."
@@ -97,7 +98,7 @@ if [ "$PROCEED_INSTALL" = true ]; then
     mkdir -p "$TEMP_DIR"
 
     echo "[PROCEEDING] Downloading Adobe Creative Cloud DMG payload..."
-    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
+    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
     HTTP_STATUS=${HTTP_STATUS:-000}
     if [ "$HTTP_STATUS" != "200" ]; then

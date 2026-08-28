@@ -14,7 +14,8 @@ APP_PATH="/Applications/$APP_NAME"
 # path is the live channel (~228 MB, current version) and is what Google's own
 # enterprise tooling uses.
 DOWNLOAD_URL="https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
-TEMP_DIR="/private/tmp/chrome_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/chrome_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/GoogleChrome.dmg"
 
 # Apple Developer Team ID for Google LLC. The mounted app must match before we copy it.
@@ -28,7 +29,7 @@ echo "[START] Evaluating Google Chrome version status..."
 # Fetch live production version string from Google's release backend.
 # NOTE: the API emits "version":"NN" with NO space after the colon, so the old
 # '"version": "' pattern matched nothing and the script always skipped.
-VENDOR_VERSION=$(curl -s "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Mac" | grep -oE '"version":[[:space:]]*"[0-9.]+"' | grep -oE '[0-9.]+' | head -n 1)
+VENDOR_VERSION=$(curl -fsS --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 30 "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Mac" | grep -oE '"version":[[:space:]]*"[0-9.]+"' | grep -oE '[0-9.]+' | head -n 1)
 
 if [ -z "$VENDOR_VERSION" ]; then
     echo "[WARN] Could not reach vendor API to check latest version. Skipping run to prevent broken downloads."
@@ -69,7 +70,7 @@ mkdir -p "$TEMP_DIR"
 # tight on throttled/VPN'd managed Macs and truncated the transfer. A truncated DMG
 # loses its trailing "koly" block, which is exactly what makes hdiutil report
 # "image not recognized". Give slow links 30 min to finish the pull.
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
 # Default to "000" so an empty / non-numeric value can never make the guard below
 # error out (integer compare) and get silently treated as success. Use string compare.

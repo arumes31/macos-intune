@@ -25,7 +25,8 @@ EXPECTED_TEAMID="4N8BGCG336"
 # A flat file outside Preferences is immune to that and is read/written directly.
 TRACKER_DIR="/Library/Application Support/CompanyPatching"
 TRACKER_FILE="$TRACKER_DIR/deepl.version"
-TEMP_DIR="/private/tmp/deepl_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/deepl_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/DeepL.dmg"
 
 echo "[START] Interrogating DeepL remote server assets..."
@@ -35,7 +36,7 @@ echo "[START] Interrogating DeepL remote server assets..."
 # ------------------------------------------------------------------------------
 # Each entry looks like "<major>.<minor>/<build>/DeepL.dmg"; sort by version then
 # build and take the newest.
-LATEST_PATH=$(curl -fsS "$INDEX_URL" --connect-timeout 10 --max-time 20 \
+LATEST_PATH=$(curl -fsS --proto '=https' --proto-redir '=https' "$INDEX_URL" --connect-timeout 10 --max-time 20 \
     | grep -oE '[0-9]+\.[0-9]+/[0-9]+/DeepL\.dmg' \
     | sort -t'/' -k1,1V -k2,2n | tail -n 1)
 
@@ -73,7 +74,7 @@ fi
 echo "[PROCEEDING] Executing download pipeline for the new payload..."
 mkdir -p "$TEMP_DIR"
 
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
 if [ "$HTTP_STATUS" -ne 200 ]; then
     echo "[FATAL] Download failed with unexpected HTTP Network Token: $HTTP_STATUS"

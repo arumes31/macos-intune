@@ -1,0 +1,47 @@
+name: Shell security checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shell-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (actions/checkout@v7)
+      - name: Parse every maintenance script
+        shell: bash
+        run: |
+          for script in ./*.sh; do
+            bash -n "$script"
+          done
+      - name: Run ShellCheck
+        shell: bash
+        run: |
+          command -v shellcheck
+          shellcheck --severity=error ./*.sh
+      - name: Enforce download and temporary-file policy
+        shell: bash
+        run: |
+          if grep -En '^TEMP_DIR="/private/tmp/' ./*.sh; then
+            echo "Predictable privileged temporary directory found" >&2
+            exit 1
+          fi
+          if grep -En 'echo.*\$(DOWNLOAD_URL|FINAL_URL|API_URL)' ./*.sh; then
+            echo "A potentially signed URL is written to logs" >&2
+            exit 1
+          fi
+          if grep -En 'curl ' ./*.sh | grep -v -- "--proto '=https'"; then
+            echo "A curl call does not restrict transport to HTTPS" >&2
+            exit 1
+          fi

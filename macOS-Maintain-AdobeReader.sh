@@ -7,7 +7,8 @@
 # ==============================================================================
 
 APP_CANDIDATES=("/Applications/Adobe Acrobat Reader.app" "/Applications/Adobe Acrobat Reader DC.app")
-TEMP_DIR="/private/tmp/adobe_reader_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/adobe_reader_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/AdobeReader.dmg"
 
 # Apple Developer Team ID for Adobe Inc. The PKG inside the DMG must match.
@@ -21,7 +22,7 @@ echo "[START] Interrogating Adobe cloud update infrastructure..."
 # ------------------------------------------------------------------------------
 # PHASE 1: RESOLVE LIVE VERSION + DOWNLOAD URL VIA API
 # ------------------------------------------------------------------------------
-API_JSON=$(curl -fsS "$API_URL" --connect-timeout 10 --max-time 30)
+API_JSON=$(curl -fsS --proto '=https' --proto-redir '=https' "$API_URL" --connect-timeout 10 --max-time 30)
 
 if [ -z "$API_JSON" ]; then
     echo "[WARN] Adobe update API is unreachable. Skipping cycle to prevent disruption."
@@ -86,7 +87,7 @@ mkdir -p "$TEMP_DIR"
 
 # Adobe Reader universal installer DMG is ~713 MB; give slow links 45 min to finish.
 echo "[PROCEEDING] Downloading Adobe Acrobat Reader DMG payload (~713 MB)..."
-HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 2700 "$DOWNLOAD_URL" -o "$DMG_PATH")
+HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 2700 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
 HTTP_STATUS=${HTTP_STATUS:-000}
 if [ "$HTTP_STATUS" != "200" ]; then

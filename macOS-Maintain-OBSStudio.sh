@@ -8,7 +8,8 @@
 
 APP_NAME="OBS.app"
 APP_PATH="/Applications/$APP_NAME"
-TEMP_DIR="/private/tmp/obs_update"
+TEMP_DIR=$(mktemp -d "/private/tmp/obs_update.XXXXXX") || { echo "[FATAL] Could not create a private temporary directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/OBS.dmg"
 
 # Apple Developer Team ID for OBS Project. The mounted app must match before copy.
@@ -33,7 +34,7 @@ API_URL="https://api.github.com/repos/obsproject/obs-studio/releases/latest"
 # PHASE 1: ZERO-DOWNLOAD API VERSION CHECK
 # ------------------------------------------------------------------------------
 echo "[INFO] Fetching metadata from latest stable GitHub release..."
-RELEASE_JSON=$(curl -sL "$API_URL")
+RELEASE_JSON=$(curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 30 "$API_URL")
 
 if [ -z "$RELEASE_JSON" ]; then
     echo "[WARN] Unable to reach GitHub API. Skipping patch cycle to preserve network."
@@ -89,10 +90,10 @@ echo "[CLEAR] System processes clear. Proceeding to remediation."
 # PHASE 3: REMEDIATION & IN-PLACE UPGRADE
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
-    echo "[PROCEEDING] Downloading payload from URL: $DOWNLOAD_URL"
+    echo "[PROCEEDING] Downloading the architecture-matched release payload."
     mkdir -p "$TEMP_DIR"
     
-    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
+    HTTP_STATUS=$(curl -L -s -w "%{http_code}" --proto '=https' --proto-redir '=https' --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
     if [ "$HTTP_STATUS" -ne 200 ]; then
         echo "[FATAL] Download failed with unexpected HTTP Status: $HTTP_STATUS"
