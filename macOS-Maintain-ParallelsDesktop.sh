@@ -24,7 +24,11 @@ EXPECTED_TEAMID="4C6364ACXT"
 PD_MAJORS="19 20 $(seq 26 $(( $(date +%y) + 1 )))"
 
 TRACKER_PLIST="/Library/Preferences/com.company.patching.parallels.plist"
-TEMP_DIR="/private/tmp/parallels_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/parallels_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/ParallelsDesktop.dmg"
 
 echo "[START] Interrogating Parallels remote asset parameters..."
@@ -98,7 +102,6 @@ echo "[CLEAR] No active Parallels processes detected. Proceeding safely to remed
 # PHASE 3: REMEDIATION & ZIP/DMG ORCHESTRATION
 # ------------------------------------------------------------------------------
 echo "[PROCEEDING] Starting download pipeline for new Parallels payload..."
-mkdir -p "$TEMP_DIR"
 
 # The full app DMG is ~205 MB; 900s was too tight on throttled/VPN'd managed Macs and
 # truncated the transfer. Give it 30 min so slow links still complete the pull.

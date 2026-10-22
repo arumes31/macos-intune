@@ -23,7 +23,7 @@ equally well from any MDM, Jamf policy, or a `launchd` job.
 | `macOS-Maintain-LogiOptionsPlus.sh` | Logi Options+ | ETag / Content-Length* | `.app` installer in `.zip` | Team ID `QED4VVPZWA` |
 | `macOS-parallelsdesktop-detect_patch.sh` | Parallels Desktop | `update.parallels.com` feed | `inittool` from `.dmg` | Team ID `4C6364ACXT` |
 | `macOS-Maintain-AdobeReader.sh` | Adobe Acrobat Reader | Adobe RDC products API | `.pkg` in `.dmg` | Team ID `JQ525L2MZD` |
-| `macOS-Maintain-AngryIPScanner.sh` | Angry IP Scanner | GitHub Releases API | `.app` in `.zip` | Unsigned (De-quarantine only) |
+| `macOS-Maintain-AngryIPScanner.sh` | Angry IP Scanner | GitHub Releases API | `.app` in `.zip` | SHA-256 (GitHub asset digest or pinned) |
 | `macOS-Maintain-Figma.sh` | Figma | Figma Release API | `.app` in `.zip` | Team ID `T8RA8NE3B7` |
 | `macOS-Maintain-OBSStudio.sh` | OBS Studio | GitHub Releases API | `.app` in `.dmg` | Team ID `2MMRE5MTB8` |
 | `macOS-Maintain-AdobeCreativeCloud.sh` | Adobe Creative Cloud | Adobe ccdConfig XML | `Install.app` in `.dmg` | Team ID `JQ525L2MZD` |
@@ -45,7 +45,7 @@ Every script follows the same lifecycle:
    closing user windows or corrupting data. Deferral exits `0` so the device stays compliant
    and re-evaluates on the next run.
 4. **Download** the installer with retries and timeouts.
-5. **Verify the code signature / Team ID** (or a published SHA-256 for Flameshot). A mismatch
+5. **Verify the code signature / Team ID** (or a published SHA-256 for Flameshot and Angry IP Scanner). A mismatch
    aborts the install — the script *fails closed*.
 6. **Install** via the appropriate native mechanism (`installer -pkg`, mount-and-copy, or the
    vendor's own installer binary).
@@ -103,6 +103,11 @@ publisher before installing:
 - **Flameshot** (a community build with no pinned Team ID) is verified against the
   **SHA-256 checksum that GitHub publishes** alongside each release asset, plus a
   `codesign` validity check.
+- **Angry IP Scanner** (unsigned by the vendor) is verified against the **SHA-256 digest
+  GitHub records for the release asset** and the download URL must be an official
+  `angryip/ipscan` release asset. Set `PINNED_SHA256` in the script to the hash of a release
+  you have vetted to install only that exact build (a newer release then fails closed until
+  you update the pin).
 
 A failed verification **aborts the install with exit 1** — the script will never install an
 unsigned, tampered, or unexpectedly-signed payload. Team IDs are sourced from the
@@ -135,7 +140,7 @@ is additionally documented in Parallels' own kernel-extension KB.
   `update.parallels.com` feeds. **When Parallels ships a new major version, add it to the
   `PD_MAJORS` variable** at the top of the script (e.g. `PD_MAJORS="20 21 22 23"`).
 - **Adobe Acrobat Reader** — Queries the Adobe RDC products API (`rdc.adobe.io`) to resolve the latest version and builds the direct download URL. Mounts the DMG and runs the `.pkg` installer via `installer -pkg`.
-- **Angry IP Scanner** — Queries GitHub Releases API to resolve the latest version and download URL, extracts the app bundle from the ZIP container, and installs it. Note: The app bundle is currently unsigned by the vendor, so codesign verification is skipped and the quarantine attribute is stripped to allow launching.
+- **Angry IP Scanner** — Queries GitHub Releases API to resolve the latest version and download URL, extracts the app bundle from the ZIP container, and installs it. Note: The app bundle is currently unsigned by the vendor, so codesign verification is replaced by a SHA-256 check (GitHub asset digest, or `PINNED_SHA256` if set) before the quarantine attribute is stripped to allow launching.
 - **Figma** — Queries the Figma Release API (`desktop.figma.com`) to resolve the latest version and download URL, extracts the app bundle from the ZIP container, verifies its codesign Team ID `T8RA8NE3B7`, and installs it.
 - **OBS Studio** — Queries GitHub Releases API to resolve the latest version and download URL, downloads the architecture-specific DMG, verifies its codesign Team ID `2MMRE5MTB8`, and installs it.
 - **Adobe Creative Cloud** — Queries the Adobe ccdConfig API (`ffc-static-cdn.oobesaas.adobe.com`) to resolve the latest version, builds the dynamic download URL for the architecture-specific DMG, mounts it, verifies its codesign Team ID `JQ525L2MZD`, and runs the native installer silently using `Install.app/Contents/MacOS/Install --mode=silent`.
@@ -185,7 +190,14 @@ ffc-static-cdn.oobesaas.adobe.com  ccmdls.adobe.com
 - **No external dependencies.** Everything parses with `grep`/`sed`/`awk`/`sort -V` and ships
   with macOS — important because stock macOS has no `jq` or `python3`.
 - **Idempotent & safe.** Scripts check before acting, defer around running apps, verify
-  signatures, and clean up `/private/tmp/*_update` scratch directories on every path.
+  signatures, and clean up their scratch directories on every path.
+- **Private scratch space.** Each run downloads into a fresh `mktemp -d`
+  `/private/tmp/<app>_update.XXXXXX` directory (root-owned, mode 0700, removed by an `EXIT`
+  trap), so a standard user can't pre-create the path or plant symlinks to swap a payload
+  between verification and install.
+- **Root-owned app bundles.** Apps copied into `/Applications` are left `root:wheel`, like
+  vendor pkgs install them, rather than handed to the console user — otherwise that user (or
+  malware in their session) could tamper with code that other users and these scripts trust.
 - **Fail closed.** Any signature/Team-ID/checksum failure aborts with exit 1 rather than
   installing an unverified binary.
 
