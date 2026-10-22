@@ -15,7 +15,11 @@ APP_PATH="/Applications/$APP_NAME"
 # below is the documented, stable source for the latest macOS Stable PKG.
 EDGE_API_URL="https://edgeupdates.microsoft.com/api/products?view=enterprise"
 
-TEMP_DIR="/private/tmp/edge_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/edge_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 PKG_NAME="MicrosoftEdgeEnterprise.pkg"
 
 # Apple Developer Team ID for Microsoft Corporation. The downloaded PKG must be
@@ -102,7 +106,6 @@ echo "[CLEAR] No active process streams mapped. Proceeding safely to remediation
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Creating scratch space and pulling down direct target installer payload..."
-    mkdir -p "$TEMP_DIR"
     
     HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$FINAL_URL" -o "$TEMP_DIR/$PKG_NAME")
 

@@ -8,8 +8,21 @@
 
 APP_NAME="Angry IP Scanner.app"
 APP_PATH="/Applications/$APP_NAME"
-TEMP_DIR="/private/tmp/angryip_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/angryip_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 ZIP_PATH="$TEMP_DIR/angryip.zip"
+
+# Angry IP Scanner macOS builds are unsigned, so integrity is checked by SHA-256 instead.
+# By default the ZIP must match the digest GitHub computed when the asset was uploaded
+# (published in the release API). For stronger assurance, set this to the SHA-256 of a
+# release ZIP you have vetted: only that exact build will then be installed.
+PINNED_SHA256=""
+
+# Only accept downloads from the official project's GitHub release assets.
+EXPECTED_URL_PREFIX="https://github.com/angryip/ipscan/releases/download/"
 
 echo "[START] Initiating Angry IP Scanner version alignment assessment..."
 
@@ -43,6 +56,27 @@ DOWNLOAD_URL=$(echo "$RELEASE_JSON" | grep -o '"browser_download_url": "[^"]*' |
 
 if [ -z "$DOWNLOAD_URL" ]; then
     echo "[FATAL] Script failed to isolate a valid installer URL payload."
+    exit 1
+fi
+
+case "$DOWNLOAD_URL" in
+    "$EXPECTED_URL_PREFIX"*) ;;
+    *)
+        echo "[FATAL] Download URL is not an official angryip/ipscan release asset: $DOWNLOAD_URL"
+        exit 1
+        ;;
+esac
+
+# GitHub-computed digest of the selected asset ("digest" precedes "browser_download_url"
+# inside each asset object; reset on every new asset so digests can't leak across assets).
+ASSET_SHA256=$(echo "$RELEASE_JSON" | awk -v url="$DOWNLOAD_URL" '
+    /"url":[[:space:]]*"https:\/\/api\.github\.com\/repos\/[^"]*\/releases\/assets\// { d = "" }
+    /"digest":/ { if (match($0, /sha256:[0-9a-fA-F]+/)) d = substr($0, RSTART + 7, RLENGTH - 7) }
+    index($0, "\"browser_download_url\": \"" url "\"") { print d; exit }')
+
+EXPECTED_SHA256="${PINNED_SHA256:-$ASSET_SHA256}"
+if [ -z "$EXPECTED_SHA256" ]; then
+    echo "[FATAL] No SHA-256 available for this asset (no GitHub digest and no PINNED_SHA256). Refusing to install."
     exit 1
 fi
 
@@ -84,7 +118,6 @@ echo "[CLEAR] System processes clear. Proceeding to remediation."
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Downloading payload from URL: $DOWNLOAD_URL"
-    mkdir -p "$TEMP_DIR"
     
     HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$ZIP_PATH")
 
@@ -93,6 +126,15 @@ if [ "$PROCEED_INSTALL" = true ]; then
         rm -rf "$TEMP_DIR"
         exit 1
     fi
+
+    # SECURITY: verify the payload hash before touching its contents.
+    ACTUAL_SHA256=$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')
+    if [ "$(echo "$ACTUAL_SHA256" | tr 'A-F' 'a-f')" != "$(echo "$EXPECTED_SHA256" | tr 'A-F' 'a-f')" ]; then
+        echo "[FATAL] SHA-256 mismatch (expected $EXPECTED_SHA256, got $ACTUAL_SHA256). Refusing to install."
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    echo "[SECURITY] Payload SHA-256 verified: $ACTUAL_SHA256"
 
     # Verify ZIP integrity
     if ! unzip -tqq "$ZIP_PATH" >/dev/null 2>&1; then
@@ -115,8 +157,8 @@ if [ "$PROCEED_INSTALL" = true ]; then
     fi
 
     # Note: Angry IP Scanner macOS builds are currently unsigned by the vendor,
-    # so standard codesign/Team ID validation is skipped.
-    echo "[SECURITY] Skipping codesign check (vendor package is unsigned)."
+    # so codesign/Team ID validation is replaced by the SHA-256 check above.
+    echo "[SECURITY] Skipping codesign check (vendor package is unsigned; SHA-256 verified)."
 
     echo "[INFO] Overwriting older binaries in /Applications..."
     rm -rf "$APP_PATH"
@@ -128,12 +170,9 @@ if [ "$PROCEED_INSTALL" = true ]; then
         echo "[SECURITY] De-quarantining the application bundle..."
         xattr -rd com.apple.quarantine "$APP_PATH" 2>/dev/null
         
-        # Fix app directory ownership back to the active user
-        CURRENT_USER=$(stat -f '%Su' /dev/console)
-        if [ "$CURRENT_USER" != "root" ] && [ "$CURRENT_USER" != "loginwindow" ] && [ -n "$CURRENT_USER" ]; then
-            echo "[INFO] Elevating folder ownership permissions to active user: $CURRENT_USER"
-            chown -R "$CURRENT_USER":staff "$APP_PATH"
-        fi
+        # SECURITY: keep the bundle root-owned (as vendor pkgs install it). Handing it to
+        # the console user would let them tamper with code other users and this script trust.
+        chown -R root:wheel "$APP_PATH"
     else
         echo "[ERROR] Copy failure from extracted ZIP to destination drive."
         rm -rf "$TEMP_DIR"

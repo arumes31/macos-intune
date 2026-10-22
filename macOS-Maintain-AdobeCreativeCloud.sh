@@ -8,7 +8,11 @@
 
 APP_NAME="Creative Cloud.app"
 APP_PATH="/Applications/Utilities/Adobe Creative Cloud/ACC/$APP_NAME"
-TEMP_DIR="/private/tmp/adobe_cc_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/adobe_cc_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/AdobeCreativeCloud.dmg"
 
 # Apple Developer Team ID for Adobe Inc. The installer inside the DMG must match.
@@ -94,7 +98,6 @@ echo "[CLEAR] System processes clear. Proceeding to remediation."
 # PHASE 3: DOWNLOAD DMG & EXECUTE SILENT UPGRADE
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
-    mkdir -p "$TEMP_DIR"
 
     echo "[PROCEEDING] Downloading Adobe Creative Cloud DMG payload..."
     HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")

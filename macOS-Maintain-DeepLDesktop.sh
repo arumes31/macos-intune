@@ -25,7 +25,11 @@ EXPECTED_TEAMID="4N8BGCG336"
 # A flat file outside Preferences is immune to that and is read/written directly.
 TRACKER_DIR="/Library/Application Support/CompanyPatching"
 TRACKER_FILE="$TRACKER_DIR/deepl.version"
-TEMP_DIR="/private/tmp/deepl_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/deepl_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/DeepL.dmg"
 
 echo "[START] Interrogating DeepL remote server assets..."
@@ -71,7 +75,6 @@ fi
 # PHASE 3: REMEDIATION & UPDATE PIPELINE (Only fires if Phase 2 passes through)
 # ------------------------------------------------------------------------------
 echo "[PROCEEDING] Executing download pipeline for the new payload..."
-mkdir -p "$TEMP_DIR"
 
 HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
@@ -111,11 +114,9 @@ rm -rf "$APP_PATH"
 if cp -R "$MOUNT_POINT/$APP_NAME" "/Applications/"; then
     echo "[SUCCESS] DeepL deployed successfully."
     
-    # Automatically fix local permissions so the user doesn't get Admin TCC prompts
-    CURRENT_USER=$(stat -f '%Su' /dev/console)
-    if [ "$CURRENT_USER" != "root" ] && [ "$CURRENT_USER" != "loginwindow" ] && [ -n "$CURRENT_USER" ]; then
-        chown -R "$CURRENT_USER":staff "$APP_PATH"
-    fi
+    # SECURITY: keep the bundle root-owned (as vendor pkgs install it). Handing it to
+    # the console user would let them tamper with code other users and this script trust.
+    chown -R root:wheel "$APP_PATH"
     
     # ------------------------------------------------------------------------------
     # PHASE 4: UPDATE THE LOCAL TRACKER DATABASE

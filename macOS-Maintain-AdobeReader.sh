@@ -7,7 +7,11 @@
 # ==============================================================================
 
 APP_CANDIDATES=("/Applications/Adobe Acrobat Reader.app" "/Applications/Adobe Acrobat Reader DC.app")
-TEMP_DIR="/private/tmp/adobe_reader_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/adobe_reader_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/AdobeReader.dmg"
 
 # Apple Developer Team ID for Adobe Inc. The PKG inside the DMG must match.
@@ -82,7 +86,6 @@ echo "[CLEAR] System processes clear. Proceeding to remediation."
 # ------------------------------------------------------------------------------
 # PHASE 3: DOWNLOAD DMG & INSTALL THE PKG CARRIED INSIDE IT
 # ------------------------------------------------------------------------------
-mkdir -p "$TEMP_DIR"
 
 # Adobe Reader universal installer DMG is ~713 MB; give slow links 45 min to finish.
 echo "[PROCEEDING] Downloading Adobe Acrobat Reader DMG payload (~713 MB)..."

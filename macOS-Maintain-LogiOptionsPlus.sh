@@ -20,7 +20,11 @@ EXPECTED_TEAMID="QED4VVPZWA"
 
 # Local system database storage tracker for zero-bandwidth loops
 TRACKER_PLIST="/Library/Preferences/com.company.patching.logioptionsplus.plist"
-TEMP_DIR="/private/tmp/logi_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/logi_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 ZIP_PATH="$TEMP_DIR/logioptionsplus_installer.zip"
 
 echo "[START] Querying Logitech content delivery networks..."
@@ -85,7 +89,6 @@ echo "[CLEAR] Environment safe. Proceeding with download sequence."
 # ------------------------------------------------------------------------------
 # PHASE 3: RETRIEVE PAYLOAD & DECOMPRESS
 # ------------------------------------------------------------------------------
-mkdir -p "$TEMP_DIR"
 
 # 600s was too tight on throttled/VPN'd managed Macs and truncated the transfer; give
 # slow links 30 min to finish the pull.
