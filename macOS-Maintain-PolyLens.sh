@@ -18,7 +18,11 @@ APP_CANDIDATES=("/Applications/Poly Lens.app" "/Applications/HP Poly Studio.app"
 # and needlessly re-installs every cycle. A flat file outside Preferences is immune.
 TRACKER_DIR="/Library/Application Support/CompanyPatching"
 TRACKER_FILE="$TRACKER_DIR/polylens.version"
-TEMP_DIR="/private/tmp/poly_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/poly_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/PolyLens.dmg"
 
 # Poly software-update GraphQL endpoint. The old static
@@ -92,7 +96,6 @@ echo "[CLEAR] Environment safe. Proposing deployment orchestration phase..."
 # ------------------------------------------------------------------------------
 # PHASE 3: DOWNLOAD DMG & INSTALL THE PKG CARRIED INSIDE IT
 # ------------------------------------------------------------------------------
-mkdir -p "$TEMP_DIR"
 
 # The DMG is ~225 MB; 600s was too tight on throttled/VPN'd managed Macs and truncated
 # the transfer. A truncated DMG loses its trailing "koly" block, which is exactly what

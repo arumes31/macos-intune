@@ -14,7 +14,11 @@ APP_PATH="/Applications/$APP_NAME"
 # path is the live channel (~228 MB, current version) and is what Google's own
 # enterprise tooling uses.
 DOWNLOAD_URL="https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
-TEMP_DIR="/private/tmp/chrome_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/chrome_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/GoogleChrome.dmg"
 
 # Apple Developer Team ID for Google LLC. The mounted app must match before we copy it.
@@ -63,7 +67,6 @@ fi
 # PHASE 2: REMEDIATION (Only runs if code above didn't exit 0)
 # ------------------------------------------------------------------------------
 echo "[PROCEEDING] Starting download and upgrade pipeline..."
-mkdir -p "$TEMP_DIR"
 
 # Resilient download with HTTP validation. The universal DMG is ~265 MB; 600s was too
 # tight on throttled/VPN'd managed Macs and truncated the transfer. A truncated DMG
@@ -161,11 +164,9 @@ if cp -R "$MOUNT_POINT/$APP_NAME" "/Applications/"; then
     # De-quarantine so Gatekeeper doesn't block first launch
     xattr -rd com.apple.quarantine "$APP_PATH" 2>/dev/null
 
-    # Restore ownership to the active console user
-    CURRENT_USER=$(stat -f '%Su' /dev/console)
-    if [ "$CURRENT_USER" != "root" ] && [ "$CURRENT_USER" != "loginwindow" ] && [ -n "$CURRENT_USER" ]; then
-        chown -R "$CURRENT_USER":staff "$APP_PATH"
-    fi
+    # SECURITY: keep the bundle root-owned (as vendor pkgs install it). Handing it to
+    # the console user would let them tamper with code other users and this script trust.
+    chown -R root:wheel "$APP_PATH"
 
     hdiutil detach "$MOUNT_POINT" -force
     rm -rf "$TEMP_DIR"

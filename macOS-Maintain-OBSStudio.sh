@@ -8,7 +8,11 @@
 
 APP_NAME="OBS.app"
 APP_PATH="/Applications/$APP_NAME"
-TEMP_DIR="/private/tmp/obs_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/obs_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/OBS.dmg"
 
 # Apple Developer Team ID for OBS Project. The mounted app must match before copy.
@@ -90,7 +94,6 @@ echo "[CLEAR] System processes clear. Proceeding to remediation."
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Downloading payload from URL: $DOWNLOAD_URL"
-    mkdir -p "$TEMP_DIR"
     
     HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 1800 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
@@ -150,12 +153,9 @@ if [ "$PROCEED_INSTALL" = true ]; then
         echo "[SECURITY] De-quarantining the application bundle..."
         xattr -rd com.apple.quarantine "$APP_PATH" 2>/dev/null
         
-        # Fix app directory ownership back to the active user
-        CURRENT_USER=$(stat -f '%Su' /dev/console)
-        if [ "$CURRENT_USER" != "root" ] && [ "$CURRENT_USER" != "loginwindow" ] && [ -n "$CURRENT_USER" ]; then
-            echo "[INFO] Elevating folder ownership permissions to active user: $CURRENT_USER"
-            chown -R "$CURRENT_USER":staff "$APP_PATH"
-        fi
+        # SECURITY: keep the bundle root-owned (as vendor pkgs install it). Handing it to
+        # the console user would let them tamper with code other users and this script trust.
+        chown -R root:wheel "$APP_PATH"
     else
         echo "[ERROR] Copy failure from mounted image to destination drive."
         hdiutil detach "$MOUNT_POINT" -force

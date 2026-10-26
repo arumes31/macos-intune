@@ -7,7 +7,11 @@
 
 APP_NAME="VLC.app"
 APP_PATH="/Applications/$APP_NAME"
-TEMP_DIR="/private/tmp/vlc_update"
+# SECURITY: create a private (root-owned, 0700) scratch dir with an unpredictable name.
+# A fixed /private/tmp path could be pre-created or symlinked by a standard user to
+# swap the payload between signature verification and the root install.
+TEMP_DIR=$(mktemp -d "/private/tmp/vlc_update.XXXXXX") || { echo "[FATAL] Unable to create private scratch directory."; exit 1; }
+trap 'rm -rf "$TEMP_DIR"' EXIT
 DMG_PATH="$TEMP_DIR/vlc.dmg"
 
 # Apple Developer Team ID for VideoLAN. The mounted app must match before we copy it.
@@ -95,7 +99,6 @@ echo "[CLEAR] System processes clear. Proceeding to remediation."
 # ------------------------------------------------------------------------------
 if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Downloading optimized DMG payload..."
-    mkdir -p "$TEMP_DIR"
     
     HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
 
@@ -134,13 +137,9 @@ if [ "$PROCEED_INSTALL" = true ]; then
         # Strip the web quarantine tag to prevent Gatekeeper blockage alerts
         xattr -rd com.apple.quarantine "$APP_PATH" 2>/dev/null
 
-        # Restore app workspace ownership back to the active user to avoid local preference
-        # write failures and recurring TCC/permission prompts.
-        CURRENT_USER=$(stat -f '%Su' /dev/console)
-        if [ "$CURRENT_USER" != "root" ] && [ "$CURRENT_USER" != "loginwindow" ] && [ -n "$CURRENT_USER" ]; then
-            echo "[INFO] Assigning folder ownership rights to active user: $CURRENT_USER"
-            chown -R "$CURRENT_USER":staff "$APP_PATH"
-        fi
+        # SECURITY: keep the bundle root-owned (as vendor pkgs install it). Handing it to
+        # the console user would let them tamper with code other users and this script trust.
+        chown -R root:wheel "$APP_PATH"
     else
         echo "[ERROR] Copy operation failed from mounted DMG to /Applications."
         hdiutil detach "$MOUNT_POINT" -force
