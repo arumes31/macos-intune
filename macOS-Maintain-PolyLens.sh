@@ -32,6 +32,7 @@ DMG_PATH="$TEMP_DIR/PolyLens.dmg"
 EXPECTED_TEAMID="WJCM3F7AQ4"
 
 POLY_API="https://api.silica-prod01.io.lens.poly.com/graphql"
+# shellcheck disable=SC2016 # GraphQL query syntax uses $variable placeholders literally
 POLY_QUERY='{"operationName":"LensSoftwareUpdateAvailable","variables":{"productId":"lens-desktop-mac","releaseChannel":null},"query":"query LensSoftwareUpdateAvailable($productId: ID!, $releaseChannel: String) {availableProductSoftwareByPid(pid: $productId, releaseChannel: $releaseChannel) {version productBuild {build archiveUrl __typename} __typename}}"}'
 
 echo "[START] Interrogating Poly cloud update infrastructure..."

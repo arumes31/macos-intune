@@ -56,8 +56,6 @@ echo "[INFO] Latest Version Live on Vendor CDN: $VENDOR_VERSION"
 # ------------------------------------------------------------------------------
 # PHASE 2: EVALUATE VERSION DRIFT
 # ------------------------------------------------------------------------------
-PROCEED_INSTALL=true
-
 if [ -d "$APP_PATH" ] && [ -f "$TRACKER_FILE" ]; then
     LOCAL_RECORDED_VERSION=$(cat "$TRACKER_FILE" 2>/dev/null)
 
