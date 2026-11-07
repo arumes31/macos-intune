@@ -24,3 +24,6 @@ jobs:
       - name: Parse management scripts without executing them
         run: |
           for script in ./*.sh; do bash -n "$script"; done
+      - name: Lint management scripts with shellcheck
+        run: |
+          for script in ./*.sh; do shellcheck "$script"; done

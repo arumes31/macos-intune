@@ -15,13 +15,13 @@ equally well from any MDM, Jamf policy, or a `launchd` job.
 | Script | App | Version source | Installer type | Signed-by check |
 |---|---|---|---|---|
 | `macOS-Maintain-MicrosoftEdge.sh` | Microsoft Edge | `edgeupdates.microsoft.com` API | `.pkg` | Team ID `UBF8T346G9` |
-| `macOS-chrome-detect_patch.sh` | Google Chrome | `chromiumdash.appspot.com` API | `.app` in `.dmg` | Team ID `EQHXZ8M8AV` |
+| `macOS-Maintain-GoogleChrome.sh` | Google Chrome | `chromiumdash.appspot.com` API | `.app` in `.dmg` | Team ID `EQHXZ8M8AV` |
 | `macOS-Maintain-VLC.sh` | VLC | VideoLAN Sparkle appcast | `.app` in `.dmg` | Team ID `75GAHG3SZQ` |
-| `macOS-flameshot-detect_patch.sh` | Flameshot | GitHub Releases API | `.app` in `.dmg` | GitHub SHA-256 + `codesign` |
+| `macOS-Maintain-Flameshot.sh` | Flameshot | GitHub Releases API | `.app` in `.dmg` | GitHub SHA-256 + `codesign` |
 | `macOS-Maintain-PolyLens.sh` | Poly Lens / HP Poly Studio | Poly GraphQL API | `.pkg` in `.dmg` | Team ID `WJCM3F7AQ4` |
-| `macOS-deepLdesktop-detect_patch.sh` | DeepL | DeepL versioned index | `.app` in `.dmg` | Team ID `4N8BGCG336` |
+| `macOS-Maintain-DeepLDesktop.sh` | DeepL | DeepL versioned index | `.app` in `.dmg` | Team ID `4N8BGCG336` |
 | `macOS-Maintain-LogiOptionsPlus.sh` | Logi Options+ | ETag / Content-Length* | `.app` installer in `.zip` | Team ID `QED4VVPZWA` |
-| `macOS-parallelsdesktop-detect_patch.sh` | Parallels Desktop | `update.parallels.com` feed | `inittool` from `.dmg` | Team ID `4C6364ACXT` |
+| `macOS-Maintain-ParallelsDesktop.sh` | Parallels Desktop | `update.parallels.com` feed | `inittool` from `.dmg` | Team ID `4C6364ACXT` |
 | `macOS-Maintain-AdobeReader.sh` | Adobe Acrobat Reader | Adobe RDC products API | `.pkg` in `.dmg` | Team ID `JQ525L2MZD` |
 | `macOS-Maintain-AngryIPScanner.sh` | Angry IP Scanner | GitHub Releases API | `.app` in `.zip` | SHA-256 (GitHub asset digest or pinned) |
 | `macOS-Maintain-Figma.sh` | Figma | Figma Release API | `.app` in `.zip` | Team ID `T8RA8NE3B7` |
@@ -136,29 +136,28 @@ is additionally documented in Parallels' own kernel-extension KB.
   the exact version-matched DMG.
 - **Logi Options+** — Keeps **ETag/Content-Length** change detection (no reliable public
   version endpoint). Tracker plist stores `LastContentLength` / `LastETag`.
-- **Parallels Desktop** — Resolves the latest version by scanning the
-  `update.parallels.com` feeds. **When Parallels ships a new major version, add it to the
-  `PD_MAJORS` variable** at the top of the script (e.g. `PD_MAJORS="20 21 22 23"`).
+- **Parallels Desktop** — Resolves the latest version by scanning the `update.parallels.com` feeds across legacy majors (19, 20) and auto-computed year-aligned majors (`seq 26 $(( $(date +%y) + 1 ))`). The script automatically discovers future year-aligned releases without requiring manual updates to `PD_MAJORS`.
 - **Adobe Acrobat Reader** — Queries the Adobe RDC products API (`rdc.adobe.io`) to resolve the latest version and builds the direct download URL. Mounts the DMG and runs the `.pkg` installer via `installer -pkg`.
 - **Angry IP Scanner** — Queries GitHub Releases API to resolve the latest version and download URL, extracts the app bundle from the ZIP container, and installs it. Note: The app bundle is currently unsigned by the vendor, so codesign verification is replaced by a SHA-256 check (GitHub asset digest, or `PINNED_SHA256` if set) before the quarantine attribute is stripped to allow launching.
 - **Figma** — Queries the Figma Release API (`desktop.figma.com`) to resolve the latest version and download URL, extracts the app bundle from the ZIP container, verifies its codesign Team ID `T8RA8NE3B7`, and installs it.
 - **OBS Studio** — Queries GitHub Releases API to resolve the latest version and download URL, downloads the architecture-specific DMG, verifies its codesign Team ID `2MMRE5MTB8`, and installs it.
 - **Adobe Creative Cloud** — Queries the Adobe ccdConfig API (`ffc-static-cdn.oobesaas.adobe.com`) to resolve the latest version, builds the dynamic download URL for the architecture-specific DMG, mounts it, verifies its codesign Team ID `JQ525L2MZD`, and runs the native installer silently using `Install.app/Contents/MacOS/Install --mode=silent`.
 
-### Tracker plists
+### Tracker plists and version files
 
-Apps whose installed version isn't directly comparable store the last-installed version in a
-plist under `/Library/Preferences/`:
+Apps whose installed version isn't directly comparable store their state across evaluation runs:
 
-| App | Plist | Keys |
+- **Poly Lens** and **DeepL** store plain text version files under `/Library/Application Support/CompanyPatching/` (`polylens.version` and `deepl.version`). Plain files prevent `cfprefsd` cache issues where keys written to `/Library/Preferences/` can be dropped.
+- **Parallels** and **Logi Options+** store tracker plists under `/Library/Preferences/`:
+
+| App | Tracker location | Keys / Content |
 |---|---|---|
-| Poly Lens | `com.company.patching.polylens.plist` | `LastVersion` |
-| DeepL | `com.company.patching.deepl.plist` | `LastVersion` |
-| Parallels | `com.company.patching.parallels.plist` | `LastVersion` |
-| Logi Options+ | `com.company.patching.logioptionsplus.plist` | `LastContentLength`, `LastETag` |
+| Poly Lens | `/Library/Application Support/CompanyPatching/polylens.version` | Raw version string |
+| DeepL | `/Library/Application Support/CompanyPatching/deepl.version` | Raw version string |
+| Parallels | `/Library/Preferences/com.company.patching.parallels.plist` | `LastVersion` |
+| Logi Options+ | `/Library/Preferences/com.company.patching.logioptionsplus.plist` | `LastContentLength`, `LastETag` |
 
-> Rename the `com.company.*` domain to your organization's reverse-DNS identifier before
-> production use.
+> Rename the `com.company.*` domain and `CompanyPatching` directory to your organization's identifier before production use.
 
 ---
 
