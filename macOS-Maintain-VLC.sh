@@ -17,8 +17,10 @@ DMG_PATH="$TEMP_DIR/vlc.dmg"
 # Apple Developer Team ID for VideoLAN. The mounted app must match before we copy it.
 EXPECTED_TEAMID="75GAHG3SZQ"
 
-# Stable Sparkle Appcast Feed managed by VideoLAN
-APPCAST_URL="http://update.videolan.org/vlc/sparkle/vlc-intel64.xml"
+# Stable Sparkle Appcast Feed managed by VideoLAN.
+# SECURITY: HTTPS only. Over plain HTTP an on-path attacker could rewrite the feed and pick
+# the version this root script installs (e.g. an older, vulnerable but still signed build).
+APPCAST_URL="https://update.videolan.org/vlc/sparkle/vlc-intel64.xml"
 
 echo "[START] Initiating VLC version alignment assessment..."
 
@@ -35,7 +37,7 @@ echo "[INFO] Architecture target classified: $ARCH_SUFFIX"
 # PHASE 1: ZERO-DOWNLOAD APPCAST XML VERSION CHECK
 # ------------------------------------------------------------------------------
 echo "[INFO] Extracting live deployment manifest from VideoLAN..."
-APPCAST_DATA=$(curl -sL "$APPCAST_URL" --connect-timeout 10 --max-time 15)
+APPCAST_DATA=$(curl -sL --proto '=https' --proto-redir '=https' "$APPCAST_URL" --connect-timeout 10 --max-time 15)
 
 if [ -z "$APPCAST_DATA" ]; then
     echo "[WARN] Unable to reach VideoLAN Appcast infrastructure. Deferring run."
@@ -73,6 +75,14 @@ if [ -d "$APP_PATH" ]; then
         echo "[COMPLIANT] VLC Media Player is fully up to date. Closing session with zero data waste."
         exit 0
     fi
+    # SECURITY: never downgrade. Only install when the vendor version is strictly newer.
+    if [ -n "$LOCAL_VERSION" ]; then
+        NEWEST=$(printf '%s\n%s\n' "$LOCAL_VERSION" "$VENDOR_VERSION" | sort -V | tail -n 1)
+        if [ "$NEWEST" = "$LOCAL_VERSION" ]; then
+            echo "[COMPLIANT] Installed version ($LOCAL_VERSION) is newer than the feed version ($VENDOR_VERSION). Refusing to downgrade."
+            exit 0
+        fi
+    fi
     echo "[OUTDATED] Local copy ($LOCAL_VERSION) is older than vendor release ($VENDOR_VERSION)."
     PROCEED_INSTALL=true
 else
@@ -101,8 +111,9 @@ if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Downloading optimized DMG payload..."
     
     HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$DMG_PATH")
+    HTTP_STATUS=${HTTP_STATUS:-000}
 
-    if [ "$HTTP_STATUS" -ne 200 ]; then
+    if [ "$HTTP_STATUS" != "200" ]; then
         echo "[FATAL] Download failed from VideoLAN CDNs with HTTP status: $HTTP_STATUS"
         rm -rf "$TEMP_DIR"
         exit 1
@@ -127,6 +138,18 @@ if [ "$PROCEED_INSTALL" = true ]; then
         exit 1
     fi
     echo "[SECURITY] App signature verified (Team ID $EXPECTED_TEAMID)."
+
+    # SECURITY: never downgrade, also based on the real bundle inside the DMG.
+    DMG_VERSION=$(defaults read "$MOUNT_POINT/$APP_NAME/Contents/Info.plist" "CFBundleShortVersionString" 2>/dev/null)
+    if [ -n "$DMG_VERSION" ] && [ -n "$LOCAL_VERSION" ]; then
+        NEWEST=$(printf '%s\n%s\n' "$LOCAL_VERSION" "$DMG_VERSION" | sort -V | tail -n 1)
+        if [ "$NEWEST" = "$LOCAL_VERSION" ]; then
+            echo "[COMPLIANT] Installed version ($LOCAL_VERSION) is >= DMG build ($DMG_VERSION). Refusing to downgrade."
+            hdiutil detach "$MOUNT_POINT" -force
+            rm -rf "$TEMP_DIR"
+            exit 0
+        fi
+    fi
 
     echo "[INFO] Replacing outdated binary infrastructure inside /Applications..."
     rm -rf "$APP_PATH"

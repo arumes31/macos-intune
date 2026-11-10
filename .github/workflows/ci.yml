@@ -27,3 +27,7 @@ jobs:
       - name: Lint management scripts with shellcheck
         run: |
           for script in ./*.sh; do shellcheck "$script"; done
+      - name: Lint and run tests
+        run: |
+          for script in ./tests/*.sh; do shellcheck "$script"; done
+          for script in ./tests/*.sh; do bash "$script"; done

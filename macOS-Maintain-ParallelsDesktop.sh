@@ -46,7 +46,7 @@ VENDOR_VERSION=""
 for maj in $PD_MAJORS; do
     feed=$(curl -fsS "https://update.parallels.com/desktop/v${maj}/parallels/parallels_updates.xml" --connect-timeout 10 --max-time 20 2>/dev/null)
     [ -z "$feed" ] && continue
-    url=$(echo "$feed" | grep -oiE 'https?://[^<> "]+/ParallelsDesktop-[0-9.]+-[0-9]+\.dmg' | head -1)
+    url=$(echo "$feed" | grep -oiE 'https://[^<> "]+/ParallelsDesktop-[0-9.]+-[0-9]+\.dmg' | head -1)
     [ -z "$url" ] && continue
     # ParallelsDesktop-20.4.2-55999.dmg -> 20.4.2.55999 (dotted, so sort -V orders it)
     v=$(echo "$url" | grep -oE 'ParallelsDesktop-[0-9.]+-[0-9]+' | sed -E 's/ParallelsDesktop-//; s/-/./')
