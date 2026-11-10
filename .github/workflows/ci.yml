@@ -24,6 +24,8 @@ jobs:
       - name: Parse management scripts without executing them
         run: |
           for script in ./*.sh; do bash -n "$script"; done
+      - name: Install shellcheck
+        run: command -v shellcheck || brew install shellcheck
       - name: Lint management scripts with shellcheck
         run: |
           for script in ./*.sh; do shellcheck "$script"; done
