@@ -53,7 +53,7 @@ check() {
 }
 
 run 3.0.21 3.0.18 200
-check "appcast fetched over https only" 'grep -q "=https" "$WORK/curl.log" && grep -q "https://update.videolan.org/" "$WORK/curl.log" && ! grep -q "http://" "$WORK/curl.log"'
+check "appcast fetched over https only" 'grep -q -- "--proto =https" "$WORK/curl.log" && grep -q -- "--proto-redir =https" "$WORK/curl.log" && grep -q "https://update.videolan.org/" "$WORK/curl.log" && ! grep -q "http://" "$WORK/curl.log"'
 check "older feed version does not downgrade" '[ "$STATUS" -eq 0 ] && [[ $OUTPUT == *"Refusing to downgrade"* ]] && ! grep -q "get.videolan.org" "$WORK/curl.log"'
 
 run 3.0.21 3.0.21 200
@@ -62,6 +62,9 @@ check "same version is compliant" '[ "$STATUS" -eq 0 ] && [[ $OUTPUT == *"[COMPL
 run 3.0.18 3.0.21 404
 check "newer feed version is downloaded" 'grep -q "https://get.videolan.org/vlc/3.0.21/macosx/" "$WORK/curl.log"'
 check "failed download is fatal" '[ "$STATUS" -eq 1 ] && [[ $OUTPUT == *"Download failed"* ]]'
+
+run "" 3.0.21 200
+check "unreadable installed version fails closed" '[ "$STATUS" -eq 1 ] && [[ $OUTPUT == *"Unable to read the installed VLC version"* ]] && ! grep -q "get.videolan.org" "$WORK/curl.log"'
 
 run 3.0.18 3.0.21 ""
 check "empty HTTP status is fatal" '[ "$STATUS" -eq 1 ] && [[ $OUTPUT == *"Download failed"* ]]'

@@ -76,12 +76,15 @@ if [ -d "$APP_PATH" ]; then
         exit 0
     fi
     # SECURITY: never downgrade. Only install when the vendor version is strictly newer.
-    if [ -n "$LOCAL_VERSION" ]; then
-        NEWEST=$(printf '%s\n%s\n' "$LOCAL_VERSION" "$VENDOR_VERSION" | sort -V | tail -n 1)
-        if [ "$NEWEST" = "$LOCAL_VERSION" ]; then
-            echo "[COMPLIANT] Installed version ($LOCAL_VERSION) is newer than the feed version ($VENDOR_VERSION). Refusing to downgrade."
-            exit 0
-        fi
+    # An unreadable installed version cannot prove that, so fail closed.
+    if [ -z "$LOCAL_VERSION" ]; then
+        echo "[FATAL] Unable to read the installed VLC version. Refusing to replace it without a version comparison."
+        exit 1
+    fi
+    NEWEST=$(printf '%s\n%s\n' "$LOCAL_VERSION" "$VENDOR_VERSION" | sort -V | tail -n 1)
+    if [ "$NEWEST" = "$LOCAL_VERSION" ]; then
+        echo "[COMPLIANT] Installed version ($LOCAL_VERSION) is newer than the feed version ($VENDOR_VERSION). Refusing to downgrade."
+        exit 0
     fi
     echo "[OUTDATED] Local copy ($LOCAL_VERSION) is older than vendor release ($VENDOR_VERSION)."
     PROCEED_INSTALL=true
@@ -141,7 +144,13 @@ if [ "$PROCEED_INSTALL" = true ]; then
 
     # SECURITY: never downgrade, also based on the real bundle inside the DMG.
     DMG_VERSION=$(defaults read "$MOUNT_POINT/$APP_NAME/Contents/Info.plist" "CFBundleShortVersionString" 2>/dev/null)
-    if [ -n "$DMG_VERSION" ] && [ -n "$LOCAL_VERSION" ]; then
+    if [ -n "$LOCAL_VERSION" ] && [ -z "$DMG_VERSION" ]; then
+        echo "[FATAL] Unable to read the DMG bundle version. Refusing to replace the installed copy."
+        hdiutil detach "$MOUNT_POINT" -force
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    if [ -n "$LOCAL_VERSION" ]; then
         NEWEST=$(printf '%s\n%s\n' "$LOCAL_VERSION" "$DMG_VERSION" | sort -V | tail -n 1)
         if [ "$NEWEST" = "$LOCAL_VERSION" ]; then
             echo "[COMPLIANT] Installed version ($LOCAL_VERSION) is >= DMG build ($DMG_VERSION). Refusing to downgrade."
