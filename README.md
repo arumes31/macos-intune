@@ -125,8 +125,10 @@ is additionally documented in Parallels' own kernel-extension KB.
 - **Google Chrome** — The unauthenticated `googlechrome.pkg` path requires a per-session
   acceptance token and now 404s, so the script installs the always-current universal
   **DMG** (`dl.google.com/chrome/mac/stable/GoogleChrome.dmg`) by copying the app bundle.
-- **VLC** — Reads the Sparkle appcast and picks the **newest** entry via `sort -V` (the feed
-  lists oldest-first). Downloads the architecture-matched DMG (`arm64` / `intel64`).
+- **VLC** — Reads the Sparkle appcast over HTTPS only and picks the **newest** entry via `sort -V`
+  (the feed lists oldest-first). Never downgrades: it only installs when the feed (and the DMG
+  bundle) version is strictly newer than the installed one. Downloads the architecture-matched
+  DMG (`arm64` / `intel64`).
 - **Flameshot** — Maps `uname -m` to the release asset name (`x86_64` → `intel`,
   `arm64` → `arm64`) so Intel Macs no longer receive an arm64 build.
 - **Poly Lens** — Resolves the installer through Poly's software-update **GraphQL API**. The
