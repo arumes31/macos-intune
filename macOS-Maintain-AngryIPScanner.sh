@@ -120,8 +120,9 @@ if [ "$PROCEED_INSTALL" = true ]; then
     echo "[PROCEEDING] Downloading payload from URL: $DOWNLOAD_URL"
     
     HTTP_STATUS=$(curl -L -s -w "%{http_code}" --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 "$DOWNLOAD_URL" -o "$ZIP_PATH")
+    HTTP_STATUS=${HTTP_STATUS:-000}
 
-    if [ "$HTTP_STATUS" -ne 200 ]; then
+    if [ "$HTTP_STATUS" != "200" ]; then
         echo "[FATAL] Download failed with unexpected HTTP Status: $HTTP_STATUS"
         rm -rf "$TEMP_DIR"
         exit 1
